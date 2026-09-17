@@ -1,32 +1,32 @@
-# Benchmark: o ranking semântico adiciona valor sobre heurística?
+# Benchmark: does the semantic ranking add value over a heuristic?
 
-`scripts/make_benchmark.py` e `scripts/benchmark.py`. A pergunta que ele responde:
-com nomes que não dizem nada, só a evidência (HTTP/título/tech) separa o que
-interessa, e **quanto** cada método recupera.
+`scripts/make_benchmark.py` and `scripts/benchmark.py`. The question they answer:
+when names say nothing, only evidence (HTTP response, title, tech) separates what
+matters, and **how much** does each method recover.
 
-## Desenho
+## Design
 
-300 hosts. Todos os nomes saem do **mesmo** conjunto de templates inócuos
-(`node-07`, `svc-3`, `cache-12`, `sqlproxy-66`...), e a classe é atribuída
-aleatoriamente e depois sustentada por evidência. Ou seja: o nome não carrega
-informação nenhuma sobre o rótulo, por construção, e um método que só lê nome
-está medindo ruído. É isso que torna o teste honesto em vez de teatro.
+300 hosts. Every name comes from the **same** pool of innocuous templates
+(`node-07`, `svc-3`, `cache-12`, `sqlproxy-66`), and the class is assigned at
+random and then backed by evidence. In other words the name carries no
+information about the label, by construction, so a method that only reads the
+name is measuring noise. That is what makes the test honest instead of theatre.
 
-Dois tiers de "interessante", porque é aí que a diferença aparece:
+Two tiers of "interesting", because that is where the difference shows up:
 
-| tier | o que é | um regex acha? |
+| tier | what it is | does a regex find it? |
 | --- | --- | --- |
-| `obvious` | a evidência nomeia um produto privilegiado: Jenkins, GitLab, phpMyAdmin, Portainer, Kibana, Grafana, MinIO, Proxmox, RabbitMQ, Prometheus | sim |
-| `subtle` | título genérico (`Console`, `Portal`, `Overview`, `Manage`) atrás de HTTP 401/403. Nenhum título contém palavra da lista de keywords, e o status é invisível para um regex sobre título+tech | não |
+| `obvious` | the evidence names a privileged product: Jenkins, GitLab, phpMyAdmin, Portainer, Kibana, Grafana, MinIO, Proxmox, RabbitMQ, Prometheus | yes |
+| `subtle` | a generic title (`Console`, `Portal`, `Overview`, `Manage`) behind an HTTP 401/403. No title contains a word from the keyword list, and the status is invisible to a regex over title plus tech | no |
 
-Cinco métodos: `random` (controle), `name heuristic` (`preprocess.pre_rank`,
-só tokens do nome), `evidence keywords` (o regex ingênuo que a pessoa escreve
-primeiro), `jev (names)` e `jev (names+evidence)`.
+Five methods: `random` (control), `name heuristic` (`preprocess.pre_rank`, name
+tokens only), `evidence keywords` (the naive regex a person writes first),
+`jev (names)` and `jev (names+evidence)`.
 
-## Resultado (média de 3 conjuntos, 300 hosts cada, 90 com evidência)
+## Result (average of 3 sets, 300 hosts each, 90 carrying privileged evidence)
 
 ```
-metodo                   P@10%   R@10%   |   P@20%   R@20%
+method                   P@10%   R@10%   |   P@20%   R@20%
 ----------------------------------------------------------
 random                   0.333   0.111   |   0.311   0.207
 name heuristic           0.278   0.093   |   0.295   0.196
@@ -35,51 +35,52 @@ jev (names)              0.200   0.067   |   0.233   0.156
 jev (names+evidence)     0.967   0.322   |   0.956   0.637
 ```
 
-O que dá pra afirmar com isso:
+What can be claimed from this:
 
-1. **Só nome é sorteio.** `jev (names)` fica no nível do `random`, e tem que
-   ficar, porque o conjunto foi construído assim. Não é falha do modelo: sem
-   evidência não existe sinal a extrair. Quem vende "rankeia subdomínio pelo
-   nome" está vendendo ruído com cara de método.
-2. **Com evidência, o ganho é real e cresce com o corte.** Em P@10% os dois
-   empatam (0.967 x 0.978), mas em P@20% o regex desaba para 0.689 enquanto o
-   Jev segura 0.956, com recall 0.637 contra 0.459. Traduzindo: a lista de
-   palavras-chave esgota o que tem para achar em ~30% dos alvos; o Jev continua
-   encontrando depois disso.
-3. **No tier subtle, um regex acerta zero.** Por construção não há palavra para
-   casar. O Jev também ia mal (2.3 de 31, abaixo do aleatório), e o motivo é a
-   jaggedness documentada: ele responde a pergunta escrita. As `criteria` falavam
-   de nomes e não mencionavam resposta gated. Depois de escrever a condição de
-   verdade ("a title that is a generic management word on a page that answers
-   HTTP 401 or 403"), subiu para 4.7 de 31, contra 2.7 do aleatório e 0.0 do
-   regex:
+1. **Names alone are a coin flip.** `jev (names)` sits at the level of `random`,
+   and it has to, because the set was built that way. That is not a failure of
+   the model: with no evidence there is no signal to extract. Anyone selling
+   "rank subdomains by name" is selling noise with a method's face on it.
+2. **With evidence the gain is real and grows with the cut.** At P@10% the two
+   tie (0.967 against 0.978), but at P@20% the regex drops to 0.689 while Jev
+   holds 0.956, with recall 0.637 against 0.459. In plain terms: the keyword list
+   exhausts what it can find at around 30% of the targets, and Jev keeps finding
+   after that.
+3. **On the subtle tier a regex scores zero.** By construction there is no word
+   to match. Jev also did badly at first (2.3 of 31, below random), and the
+   reason is the documented jaggedness: it answers the question you wrote. The
+   `criteria` talked about names and never mentioned a gated response. After
+   writing the actual condition ("a title that is a generic management word on a
+   page that answers HTTP 401 or 403"), it went to 4.7 of 31, against 2.7 for
+   random and 0.0 for the regex:
 
 ```
-tier subtle, acertos no top 30 (de 31 alvos)
+subtle tier, hits in the top 30 (out of 31 targets)
 random                2.7  ->  2.7
 evidence keywords     0.0  ->  0.0
 jev (names)           2.7  ->  2.3
 jev (names+evidence)  2.3  ->  4.7
 ```
 
-4. **Custo honesto de perder uma coisa para ganhar outra:** com o `criteria`
-   mais longo, o recall no tier obvious caiu de 0.441 para 0.413. Aumentar a
-   precisão de uma pergunta pode deslocar outra. O composto em P@20% melhorou,
-   mas a oscilação é real e é por isso que existe medição.
+4. **The honest cost of trading one thing for another:** with the longer
+   `criteria`, recall on the obvious tier fell from 0.441 to 0.413. Sharpening
+   one question can displace another. The composite at P@20% improved, but the
+   oscillation is real, and it is why measurement exists.
 
-## O que este benchmark NÃO prova
+## What this benchmark does NOT prove
 
-- O rótulo vem da evidência HTTP, então `evidence keywords` e as duas linhas do
-  Jev são avaliadas em material da mesma família do rótulo. Isso mede "o
-  pipeline recupera o que a evidência diz", **não** "acha vulnerabilidade real".
-- O conjunto é sintético e o tier `subtle` é uma hipótese explícita minha sobre
-  o que um humano consideraria interessante. Se essa hipótese estiver errada, o
-  número do tier está errado junto.
-- Em dado real não existe rótulo. Ali a única coisa que dá para medir é
-  concordância e discordância entre métodos, e inspecionar os casos onde eles
-  divergem. O que este script dá é o tamanho do efeito quando o rótulo existe.
+* The label comes from HTTP evidence, so `evidence keywords` and both Jev lines
+  are scored on material in the same family as the label. This measures "does the
+  pipeline recover what the evidence says is there", **not** "does it find a real
+  vulnerability".
+* The set is synthetic and the `subtle` tier is an explicit hypothesis of mine
+  about what a human would consider interesting. If that hypothesis is wrong, the
+  tier number is wrong with it.
+* On real data there is no label. There, the only thing measurable is agreement
+  and disagreement between methods, plus inspecting the cases where they diverge.
+  What this script provides is the size of the effect when a label does exist.
 
-## Reproduzir
+## Reproduce
 
 ```bash
 .venv/bin/python scripts/make_benchmark.py --hosts 300 --gold 90 --seed 11 --out bench-11/
@@ -87,6 +88,6 @@ jev (names+evidence)  2.3  ->  4.7
     --out bench-11/results.json
 ```
 
-Cada conjunto custa cerca de $0.027 (duas condições, 15 requests cada).
-O script se recusa a rodar quando o filtro local descarta algum host, para
-comparação não virar medição do filtro.
+Each set costs about $0.027 (two conditions, 15 requests each). The script
+refuses to run when the local filter drops any host, so a comparison never
+degrades into a measurement of the filter.

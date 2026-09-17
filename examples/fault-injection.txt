@@ -1,4 +1,4 @@
-$ # API falsa no ar com: --rate-limit-every 40 --retry-after 1 --fail-every 77 \
+$ # fake API running with: --rate-limit-every 40 --retry-after 1 --fail-every 77 \
 $ #                      --reject-over-questions 60
 $ jev-recon subdomains3k.txt --batch-size 20 --concurrency 8 --threshold 0.62 --top 5
 

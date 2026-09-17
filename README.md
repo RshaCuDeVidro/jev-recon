@@ -1,66 +1,68 @@
 # jev-recon
 
-Triagem de subdomínios para pesquisa de segurança usando o **Jev** (TypeSafe AI)
-como camada de decisão probabilística, e código Python comum decidindo o ranking.
+Subdomain triage for security research, using **Jev** (TypeSafe AI) as a
+probabilistic decision layer, and plain Python deciding the ranking.
 
-O objetivo não é pedir para um LLM "dizer o que é interessante". É fazer muitas
-perguntas pequenas e independentes sobre cada asset, transformar as respostas em
-números, e compor a prioridade com aritmética que você controla.
+The point is not to ask an LLM to "tell me which subdomain is interesting". The
+point is to ask many small independent questions about each asset, turn the
+answers into numbers, and compose the priority with arithmetic you control.
 
 ```
-LLM tradicional:  "me diga qual subdomínio é interessante"      (texto, instável, caro de iterar)
-Jev:              "responda 7 perguntas sim/não sobre este asset" (probabilidade por pergunta)
-Código Python:    priority = soma ponderada + ordenação           (seu, auditável, versionado)
+Traditional LLM:  "tell me which subdomain is interesting"     (text, unstable, expensive to iterate)
+Jev:              "answer 7 yes/no questions about this asset" (one probability per question)
+Python:           priority = weighted sum + sort                (yours, auditable, versioned)
 ```
 
 ---
 
-## Estrutura
+## Layout
 
 ```
 jev-recon/
 ├── jev_recon/
-│   ├── cli.py            CLI, orquestração, saída no terminal
-│   ├── config.py         .env, API key, base URL, modelo
-│   ├── cache.py          cache de respostas por hash da request (re-rankear de graça)
-│   ├── preprocess.py     filtros locais baratos, fatos extraídos por código, agrupamento
-│   ├── signals.py        as perguntas (Choice / Score / Noul) e o corpo da request
-│   ├── jev.py            cliente HTTP assíncrono: batching, concorrência, retries
-│   └── rank.py           pesos, prioridade, agrupamento por serviço, ordenação
+│   ├── cli.py            CLI, orchestration, terminal output
+│   ├── config.py         .env, API key, base URL, model
+│   ├── cache.py          response cache keyed by request hash (re-ranking is free)
+│   ├── preprocess.py     cheap local filters, code-extracted facts, grouping
+│   ├── signals.py        the questions (Choice / Score / Noul) and the request body
+│   ├── jev.py            async HTTP client: batching, concurrency, retries
+│   └── rank.py           weights, priority, per-service grouping, reasons, sorting
 ├── scripts/
-│   ├── gen_sample.py             gera uma lista sintética grande para demo/carga
-│   ├── make_benchmark.py         conjuntos rotulados para o benchmark
-│   ├── benchmark.py              Jev x heurística x aleatório (ver BENCHMARK.md)
-│   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                62 testes (unittest, sem dependências extras)
-├── examples/             entrada, saída e logs de execuções reais
+│   ├── gen_sample.py             generates a large synthetic list for demos and load
+│   ├── make_benchmark.py         labelled sets for the benchmark
+│   ├── benchmark.py              Jev vs heuristics vs random (see BENCHMARK.md)
+│   └── mock_typesafe_server.py   compatible fake API, for demos and tests without a key
+├── tests/                62 tests (unittest, no extra dependencies)
+├── examples/             input, output and logs from real runs
 ├── requirements.txt      httpx
 ├── pyproject.toml
+├── BENCHMARK.md
 └── .env.example
 ```
 
-Dependência de runtime: **httpx**. Sem framework, sem banco, sem frontend.
+Runtime dependency: **httpx**. No framework, no database, no frontend.
 
-## Instalação
+## Install
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt        # ou: .venv/bin/pip install -e .
-cp .env.example .env                             # e preencha a chave
+.venv/bin/pip install -r requirements.txt        # or: .venv/bin/pip install -e .
+cp .env.example .env                             # then fill in the key
 ```
 
-O `pip install -e .` cria o script `jev-recon` dentro de `.venv/bin/`, que não
-está no PATH. Três saídas, em ordem de conveniência:
+`pip install -e .` puts the `jev-recon` console script inside `.venv/bin/`,
+which is not on your PATH, so a bare `jev-recon` will not be found. Three ways
+out, in order of convenience:
 
 ```bash
-# 1. um launcher no ~/.local/bin (é o que já está feito nesta máquina)
+# 1. a launcher in ~/.local/bin (this is what is already set up on this machine)
 printf '#!/bin/sh\nexec %s/.venv/bin/python -m jev_recon "$@"\n' "$PWD" > ~/.local/bin/jev-recon
 chmod +x ~/.local/bin/jev-recon
 
-# 2. ativar o venv a cada sessão
+# 2. activate the venv each session
 source .venv/bin/activate
 
-# 3. sem instalar nada
+# 3. install nothing at all
 .venv/bin/python -m jev_recon hosts.txt
 ```
 
@@ -68,62 +70,72 @@ source .venv/bin/activate
 
 ```ini
 TYPESAFE_API_KEY=ts_...
-# opcionais
+# optional
 TYPESAFE_BASE_URL=https://api.typesafe.ai
 TYPESAFE_DEFAULT_MODEL=jev-latest
 ```
 
-Chave em https://console.typesafe.ai/settings/keys
+Key at https://console.typesafe.ai/settings/keys
 
-## Com subfinder, httpx e nuclei
+The `.env` file is looked up in this order: `.env` in the current directory,
+`.env` in the project root, `~/.config/jev-recon/.env`. So you can call
+`jev-recon` from inside any engagement folder and the key is still found. If you
+name an explicit file (`--env-file x.env`), only that file is used, with no
+fallback.
 
-O caso de uso principal. `jev-recon` lê stdin quando você passa `-` (que já é o
-default), então entra direto no meio do pipeline.
+## With subfinder, httpx and nuclei
+
+The main use case. `jev-recon` reads stdin when you pass `-` (which is already
+the default), so it drops straight into the middle of a pipeline.
 
 ```bash
-# 1. enumera
-subfinder -d alvo.com -silent | sort -u > hosts.txt
+# 1. enumerate
+subfinder -d target.com -silent | sort -u > hosts.txt
 
-# 2. enriquece (opcional, mas melhora muito o sinal)
+# 2. enrich (optional, but it changes the signal a lot)
 httpx -silent -json -l hosts.txt -o probe.json \
       -status-code -title -tech-detect -web-server -ports 443,80,8080,8443
 
-# 3. confere o plano e o custo antes de gastar (nada é enviado)
+# 3. check the plan and the cost before spending anything (nothing is sent)
 jev-recon hosts.txt --meta probe.json --dry-run
 
-# 4. prioriza
+# 4. prioritize
 jev-recon hosts.txt --meta probe.json --cache jev-cache.json \
     --all-output all.json --threshold 0.55 --output interesting.json
 ```
 
-Se você pular o passo 2, tire o `--meta` dos passos 3 e 4: o `probe.json` só
-existe depois que o httpx roda. Um `--meta probe.json` apontando para arquivo
-inexistente para o tool com a instrução do que fazer, e nada é enviado à API.
+If you skip step 2, drop `--meta` from steps 3 and 4: `probe.json` only exists
+after httpx runs. A `--meta probe.json` pointing at a file that is not there gets
+an explicit message with the httpx command that creates it, and nothing is sent
+to the API.
 
-Sem arquivo intermediário, tudo por pipe:
+Same thing with no intermediate file, all through pipes:
 
 ```bash
-subfinder -d alvo.com -silent | sort -u | jev-recon - --meta probe.json \
+subfinder -d target.com -silent | sort -u | jev-recon - --meta probe.json \
     --cache jev-cache.json --all-output all.json --output interesting.json
 ```
 
-O `--all-output` no primeiro run não é enfeite: veja "Escolhendo o threshold"
-abaixo antes de cortar.
+The `--all-output` on the first run is not decoration: read "Choosing the
+threshold" below before cutting.
 
-E o que sai daqui vai para a etapa caríssima:
+And whatever comes out of here feeds the expensive stage:
 
 ```bash
-# só os high-interest, para o nuclei
+# only the high-interest ones, into nuclei
 jq -r '.[].hostname' interesting.json | nuclei -l - -severity critical,high
 
-# ou para o httpx de novo, agora para tirar screenshot dos que importam
+# or back into httpx, now for screenshots of what matters
 jq -r '.[].hostname' interesting.json | httpx -silent -screenshot
 
-# ou os top 20 para olhar na mão
+# or the top 20 to look at by hand
 jq -r '.[:20][] | "\(.priority)  \(.hostname)"' interesting.json
+
+# or the reasons, straight from the record
+jq -r '.[:5][] | "\(.priority)  \(.hostname)\n    \(.reasons|join("\n    "))"' interesting.json
 ```
 
-Exemplo de execução real (dominio proprio, `examples/subfinder-pipeline.txt`):
+A real run on a domain of my own (`examples/subfinder-pipeline.txt`):
 
 ```
 5 subdomains → 5 candidates → 1 request · 33.0s → 5 assets
@@ -135,53 +147,47 @@ Exemplo de execução real (dominio proprio, `examples/subfinder-pipeline.txt`):
 tokens in 7,262   est. cost $0.0003   (jev-1.13.0)
 ```
 
-### O que do `httpx -json` chega no Jev
+### Which parts of `httpx -json` reach Jev
 
-O `httpx -json` escreve um objeto por linha com cerca de 25 campos, e boa parte é
-ruído para a decisão (`timestamp`, `resolvers`, `knowledgebase`, `method`,
-`path`, `words`). O Jev é explícito na doc: state com material não relacionado à
-pergunta derruba a acurácia. Então o default mantém só o que decide, tanto no
-state quanto no arquivo de saída:
+`httpx -json` writes one object per line with around 25 fields, and most of them
+are noise for the decision (`timestamp`, `resolvers`, `knowledgebase`, `method`,
+`path`, `words`). The Jev docs are explicit: a state carrying material unrelated
+to the question drags accuracy down. So the default keeps only what decides,
+both in the state and in the output file:
 
 ```
 resolved_ips  http_status  title  server  ports  technologies  scheme
 final_url  redirect_to  cdn  cname  content_length  response_time  probe_failed
 ```
 
-Os nomes que as ferramentas usam são traduzidos automaticamente:
+The names the tools actually use are translated automatically:
 `status_code → http_status`, `tech → technologies`, `webserver → server`,
 `host_ip`/`a`/`ip → resolved_ips`, `location → redirect_to`, `port → ports`.
-Campo desconhecido passa direto, nada é descartado em silêncio.
+Unknown fields pass through, nothing is dropped silently.
 
-Controle: `--meta-fields title,server,http_status` para escolher na mão, ou
-`--meta-all` para mandar tudo (inclusive o ruído) no state e no output.
+Control it with `--meta-fields title,server,http_status` to pick by hand, or
+`--meta-all` to send everything, noise included, into both the state and the
+output.
 
-Uma linha por porta também é tratada: o `httpx` emite uma linha para o 80 e outra
-para o 443 do mesmo host, e as duas são fundidas sem que um campo vazio apague um
-preenchido (a linha do redirect não tem `title`).
+One line per port is handled too: httpx emits one line for port 80 and another
+for port 443 of the same host, and the two are merged without an empty field
+overwriting a filled one (the redirect line has no `title`).
 
-### A chave é achada de qualquer diretório
+### Choosing the threshold
 
-`--env-file .env` procura, nesta ordem: `.env` do diretório atual, `.env` da raiz
-do projeto, `~/.config/jev-recon/.env`. Então você pode chamar o `jev-recon` de
-dentro de qualquer pasta de engajamento que a chave é encontrada. Se você nomear
-um arquivo explícito (`--env-file x.env`), só esse é usado, sem fallback.
-
-### Escolhendo o threshold
-
-O `--threshold` default é 0.55, e ele não é um número sagrado. A escala real do
-Jev é mais baixa do que parece: medido em três conjuntos diferentes, com os pesos
-default,
+`--threshold` defaults to 0.55, and it is not a sacred number. The real Jev
+scale is lower than it looks. Measured across three different sets, with the
+default weights:
 
 ```
-nomes sujos de privilegio (admin-api, bastion, vpn, db, jenkins)   0.51 a 0.63
-nomes internos depois de tirar o peso de production                 0.70 a 0.80
-sites estaticos sem nada privilegiado (www, landing, vercel)       0.13 a 0.29
+privileged-looking names (admin-api, bastion, vpn, db, jenkins)   0.51 to 0.63
+internal names after dropping the production weight               0.70 to 0.80
+static sites with nothing privileged (www, landing, vercel)       0.13 to 0.29
 ```
 
-Então: rode o primeiro run com `--all-output`, olhe a distribuição, e escolha o
-corte a partir dela. Se nada passar do threshold, o tool avisa em vez de entregar
-um arquivo vazio em silêncio:
+So: run the first pass with `--all-output`, look at the distribution, and pick
+the cut from the data. If nothing reaches the threshold, the tool says so
+instead of handing you a silently empty file:
 
 ```
 note: no asset reached --threshold 0.55. Top score is 0.28 (reesxss.pwnd.blog).
@@ -189,27 +195,27 @@ Real Jev scores sit lower than the mock's, so pick the cut from the data:
 try --threshold 0.23, or --all-output to keep every asset.
 ```
 
-Maneira rápida de calibrar sem gastar numa lista enorme:
+A quick way to calibrate without spending on a huge list:
 
 ```bash
 jev-recon hosts.txt --limit 300 --all-output calib.json --threshold 0.0
-jq -r '[.[].priority] | "max \(max)  min \(min)  mediana \(.[length/2|floor])"' calib.json
+jq -r '[.[].priority] | "max \(max)  min \(min)  median \(sort | .[length/2|floor])"' calib.json
 jq -r '[.[].priority] | sort | reverse | .[0:20] | @csv' calib.json
 ```
 
-Depois, com `--cache`, re-cortar e re-pesar é de graça.
+Afterwards, with `--cache`, re-cutting and re-weighting cost nothing.
 
-## Uso genérico
+## General usage
 
 ```bash
 .venv/bin/python -m jev_recon subdomains.txt \
   --batch-size 20 \
   --concurrency 16 \
-  --threshold 0.70 \
+  --threshold 0.55 \
   --output interesting.json
 ```
 
-Ou, depois de `pip install -e .`, o console script:
+Or, after `pip install -e .`, the console script:
 
 ```bash
 jev-recon subdomains.txt --concurrency 20 --explain 10
@@ -218,39 +224,39 @@ jev-recon subdomains.txt --concurrency 20 --explain 10
 ### Flags
 
 ```
-entrada/saída
-  -                      stdin (default), para pipes
-  --output F             high-interest, ordenado (default interesting.json)
-  --all-output F         tudo, com priority null nos que falharam
-  --report F             contagens, batching, pesos, uso, custo, erros
-  --threshold F          corte de high-interest (default 0.55, veja acima)
-  --top N / --explain N  linhas no TOP ASSETS / tabela de sinais
+input / output
+  -                      stdin (default), for pipes
+  --output F             high-interest, sorted (default interesting.json)
+  --all-output F         everything, with priority null for what failed
+  --report F             counts, batching, weights, usage, cost, errors
+  --threshold F          high-interest cut (default 0.55, see above)
+  --top N / --explain N  rows in TOP ASSETS / the per-signal table
+  --reasons N            why-tree, one block per asset
 
-decisão
-  --signals a,b,c        subconjunto dos sinais; devops existe, fora do default
-  --reasons N            árvore de motivos por asset (por que rankeou onde rankeou)
-  --weights ...          pesos, JSON ou k=v, aceita peso negativo
-  --meta F               enriquecimento por host (httpx -json direto)
-  --meta-fields a,b      quais campos de metadata ficam
-  --meta-all             mantém tudo, inclusive ruído
-  --max-per-parent N     limita assets por domínio registrado
-  --max-per-shape N      cópias do mesmo serviço no output (default 2, 0 desliga)
-  --drop-throwaway       descarta dev/test/qa (default: mantém e anota)
-  --limit N              analisa só os N melhores do pre_rank
+decision
+  --signals a,b,c        subset of the signals; devops exists, off by default
+  --weights ...          weights, JSON or k=v, negative weights allowed
+  --meta F               per-host enrichment (httpx -json straight in)
+  --meta-fields a,b      which metadata fields are kept
+  --meta-all             keeps every metadata field, noise included
+  --max-per-parent N     caps assets per registered domain
+  --max-per-shape N      copies of the same service in the output (default 2, 0 disables)
+  --drop-throwaway       drops dev/test/qa (default: keeps and annotates)
+  --limit N              analyzes only the top N by pre_rank
 
-execução
-  --cache F              cache de respostas; re-rankear sai de graça
-  --batch-size N         candidatos por request (latência)
-  --concurrency N        requests em paralelo (default 8)
-  --max-retries N        tentativas por request (default 4)
-  --timeout F            por request, segundos
-  --strict               aborta na primeira falha (default: segue e marca)
-  --dry-run              plano e custo estimado, sem chamar a API
-  --quiet                sem progresso nem log de eventos
+execution
+  --cache F              response cache; re-ranking then costs nothing
+  --batch-size N         candidates per request (latency)
+  --concurrency N        requests in flight (default 8)
+  --max-retries N        attempts per request (default 4)
+  --timeout F            per request, seconds
+  --strict               abort on the first failure (default: continue and mark)
+  --dry-run              plan and estimated cost, no API call
+  --quiet                no progress, no event log
 ```
 
-Exemplo de execução real (50.000 subdomínios, 24.707 candidatos, concurrency 16,
-rodando contra o mock local da seção 7, que é de onde vêm os números de `usage`):
+A real run (50,000 subdomains, 24,707 candidates, concurrency 16, against the
+local mock from section 7, which is where the `usage` numbers come from):
 `examples/console-output.txt`
 
 ```
@@ -278,7 +284,7 @@ RUN
   tokens         in 26,076,079  out 526,263   est. cost $1.0952   (jev-1.13.0)
 ```
 
-`--dry-run` monta as requests e mostra o plano, sem gastar nada:
+`--dry-run` builds the requests and shows the plan without spending anything:
 
 ```
   requests planned      14
@@ -288,21 +294,21 @@ RUN
   est. cost             $0.0157   (@ $0.042/Mtok, output free)
 ```
 
-### Entrada
+### Input
 
-* `.txt`: um hostname por linha. Aceita lixo: `https://`, `:porta`, `user@`,
-  `*.` (wildcard), `#` comentários, `host 1.2.3.4`, maiúsculas, IPs, URLs com path.
-* `-` (default): stdin, para `subfinder -silent | jev-recon -`.
-* `.json`: lista de strings ou de objetos com `hostname`/`host`/`input`/`url`.
-* `.jsonl`: um objeto por linha, no formato do `httpx -json`.
-* `--meta probe.json`: enriquecimento por hostname (`resolved_ips`, `http_status`,
-  `title`, `server`, `ports`, `technologies`), nas chaves do `httpx` ou as canônicas.
-  Veja `examples/metadata.sample.json`. Se o input já for JSON com esses campos,
-  eles entram automaticamente.
+* `.txt`: one hostname per line. Tolerates garbage: `https://`, `:port`, `user@`,
+  `*.` (wildcard), `#` comments, `host 1.2.3.4`, uppercase, IPs, URLs with paths.
+* `-` (default): stdin, for `subfinder -silent | jev-recon -`.
+* `.json`: list of strings, or list of objects with `hostname`/`host`/`input`/`url`.
+* `.jsonl`: one object per line, in the `httpx -json` shape.
+* `--meta probe.json`: enrichment keyed by hostname (`resolved_ips`, `http_status`,
+  `title`, `server`, `ports`, `technologies`), using either the httpx keys or the
+  canonical ones. See `examples/metadata.sample.json`. If the input is already
+  JSON with those fields, they are picked up automatically.
 
-### Saída
+### Output
 
-`interesting.json` (assets com `priority >= --threshold`, ordenados):
+`interesting.json` (assets with `priority >= --threshold`, sorted):
 
 ```json
 [
@@ -318,6 +324,15 @@ RUN
       "likely_api": 0.97,
       "interesting_for_security_research": 0.95
     },
+    "reasons": [
+      "api 0.97  machine-facing API surface",
+      "sensitive 0.96  guards sensitive data or functionality",
+      "production 0.98  live production system",
+      "code: privileged labels admin, api",
+      "evidence: gated, HTTP 403",
+      "evidence: title \"Jenkins\"",
+      "evidence: Jenkins, nginx"
+    ],
     "relative_pick": 0.215,
     "weights_used": {"production": 0.25, "sensitive": 0.25, "admin": 0.15, "api": 0.15, "interesting": 0.2},
     "missing_signals": [],
@@ -332,59 +347,67 @@ RUN
 ]
 ```
 
-* `signals`: as probabilidades (Noul) por pergunta, 0 a 1. `null` quando a
-  resposta não veio.
-* `relative_pick`: a pergunta `Choice` do lote. As probabilidades de uma Choice
-  somam 1, então isso é **pressão relativa dentro do lote**, usado só como
-  desempate. Nunca é lido como sinal absoluto.
-* `batch.research_yield`: a pergunta `Score` do lote (0, 1 ou 2), com a
-  `confidence` da própria resposta. Serve para gate: lote sem nada interessante
-  não precisa de análise caríssima depois.
-* `pre`: fatos calculados por código (tokens do nome, ambiente detectado,
-  label privilegiado), não por modelo.
-* `incomplete`: `true` quando alguma pergunta ficou sem resposta.
+* `signals`: the per-question probabilities (Noul), 0 to 1. `null` when the
+  answer did not arrive.
+* `reasons`: why this asset ranked where it did. Built in Python from the
+  probabilities and the facts, never generated by a model. The order is the
+  contribution each signal actually made (`weight x value`), so the first line is
+  what moved the score. Evidence lines are prefixed with `code:` or `evidence:`.
+* `relative_pick`: the batch-level `Choice` question. Choice probabilities sum to
+  1, so this is **relative pressure inside the batch**, used only as a
+  tie-breaker. It is never read as an absolute signal.
+* `batch.research_yield`: the batch-level `Score` question (0, 1 or 2) with the
+  confidence of the answer itself. Usable as a gate: a batch with nothing
+  interesting does not need expensive analysis afterwards.
+* `pre`: facts computed in code (name tokens, detected environment, privileged
+  labels), not by a model.
+* `incomplete`: `true` when some question went unanswered.
 
-Extras: `--all-output all.json` (tudo, não só os high-interest),
-`--report report.json` (contagens, preprocess, batching, pesos, uso, erros).
+Extras: `--all-output all.json` (everything, not just the high-interest ones),
+`--report report.json` (counts, preprocess, batching, weights, usage, errors).
 
-### Cache: re-rankear não se paga duas vezes
+### Cache: re-ranking is not paid twice
 
 ```bash
-.venv/bin/jev-recon lista.txt --cache jev-cache.json --output v1.json
-.venv/bin/jev-recon lista.txt --cache jev-cache.json \
+jev-recon list.txt --cache jev-cache.json --output v1.json
+jev-recon list.txt --cache jev-cache.json \
   --weights 'sensitive=0.4,admin=0.3,interesting=0.3' --output v2.json
 ```
 
-A chave do cache é o hash do corpo da request (modelo + state + perguntas), então
-um hit só acontece quando o pedido é idêntico. A segunda rodada acima sai com
-`requests 0 sent   cache 3 hits   est. cost $0.0000` em menos de um segundo, e o
-ranking muda só por causa dos pesos. Respostas vindas do cache **não** são
-somadas em `input_tokens`, porque já foram cobradas quando entraram. Apague o
-arquivo para forçar respostas novas.
+The cache key is the hash of the request body (model + state + questions), so a
+hit only happens when the request is identical. The second run above finishes in
+under a second with `requests 0 sent   cache 3 hits   est. cost $0.0000`, and the
+ranking changes only because of the weights. Answers served from the cache are
+**not** added to `input_tokens`, because they were already billed when they
+arrived. Delete the file to force fresh answers.
 
-## 1. Pré-processamento local (antes de gastar API)
+One consequence worth knowing: the criteria text is part of the key. Improve a
+question and every cached answer for that signal is invalidated, so the next run
+pays again.
 
-`preprocess.py`, tudo offline:
+## 1. Local preprocessing (before spending API budget)
 
-| ação | como |
+`preprocess.py`, all offline:
+
+| action | how |
 | --- | --- |
-| normalizar | tira scheme, path, query, porta, `user@`, `*.`, ponto final, baixa a caixa |
-| eliminar duplicados | set, depois de normalizar (`API.x.com` == `api.x.com`) |
-| validar | label 1-63, não começa/termina com hífen, TLD alfabético, total <= 253 |
-| descartar lixo | IP literal, hostname de um label só, sufixo reservado (`.invalid`, `.test`), wildcard, labels placeholder (`foo`, `asdf`, `dummy`) |
-| anotar (não descartar) | token de ambiente (`dev`, `test`, `qa`), label privilegiado (`admin`, `api`, `vpn`), label de ruído (`cdn`, `static`), profundidade, `pre_rank` |
-| agrupar | `--max-per-parent N` limita quantos assets ficam por domínio registrado, mantendo os de maior `pre_rank` |
+| normalize | strips scheme, path, query, port, `user@`, `*.`, trailing dot, lowercases |
+| deduplicate | a set, after normalizing (`API.x.com` == `api.x.com`) |
+| validate | label 1 to 63 chars, no leading or trailing hyphen, alphabetic TLD, total <= 253 |
+| drop junk | IP literal, single-label hostname, reserved suffix (`.invalid`, `.test`), wildcard, placeholder labels (`foo`, `asdf`, `dummy`) |
+| annotate (not drop) | environment token (`dev`, `test`, `qa`), privileged label (`admin`, `api`, `vpn`), noise label (`cdn`, `static`), depth, `pre_rank` |
+| group | `--max-per-parent N` caps how many assets stay per registered domain, keeping the highest `pre_rank` |
 
-Ponto importante de projeto: **`test` e `dev` não são descartados**, são
-anotados. Assets de staging quebrado são exatamente onde bug bounty costuma
-render. Só o que nunca foi host real é jogado fora.
+An important design point: **`test` and `dev` are not dropped**, they are
+annotated. Broken staging assets are exactly where bug bounty tends to pay. Only
+names that were never a real host are thrown away.
 
-`pre_rank` é a heurística local (soma de tokens conhecidos). Ela serve para
-ordenar dentro de um cap e para `--limit`. Nunca é a decisão final.
+`pre_rank` is the local heuristic (a sum of known tokens). It orders within a cap
+and feeds `--limit`. It is never the final decision.
 
-## 2. O que é enviado ao Jev
+## 2. What is sent to Jev
 
-Uma request por lote. Estado e perguntas, no formato documentado em
+One request per batch. State and questions, in the format documented for
 `POST /v1/systemone`:
 
 ```json
@@ -433,67 +456,80 @@ Uma request por lote. Estado e perguntas, no formato documentado em
 }
 ```
 
-Cada candidato gera 7 perguntas `Noul` (uma por sinal), mais 2 perguntas de lote.
-Uma request de 20 candidatos carrega 142 perguntas.
+Each candidate generates 7 `Noul` questions (one per signal), plus 2 batch
+questions. A request with 20 candidates carries 142 questions.
 
-Os três tipos são usados onde fazem sentido:
+The three types are used where each one fits:
 
-* **Noul** para os sinais por asset. O valor é absoluto e independente: sete
-  nouls podem voltar todos baixos, e isso é informação. (Noul não tem
-  `confidence` separada, por definição do próprio Jev: a probabilidade é o sinal.)
-* **Choice** para "qual deste lote você olharia primeiro". Probabilidades somam 1,
-  então serve como ranking relativo / desempate.
-* **Score** para o rendimento do lote, com níveis ordenados e `confidence`, usado
-  como gate.
+* **Noul** for the per-asset signals. The value is absolute and independent:
+  seven nouls can all come back low, and that is information. (Noul has no
+  separate `confidence`, by design of Jev itself: the probability is the signal.)
+* **Choice** for "which one in this batch would you look at first". Probabilities
+  sum to 1, so it works as a relative ranking and tie-breaker.
+* **Score** for the batch yield, with ordered levels and a `confidence`, used as
+  a gate.
 
-Cada pergunta é literal e tem `criteria` nos dois lados (`true` e `false`)
-explicando o que conta como sim e como não. Isso segue a orientação da doc
-("write the exact condition in the instructions") porque o Jev responde a
-pergunta escrita, não a que você quis escrever.
+Every question is literal and carries `criteria` on both sides (`true` and
+`false`) stating what counts as yes and what counts as no. This follows the docs
+("write the exact condition in the instructions"), because Jev answers the
+question you wrote, not the one you meant.
 
-## 3. Batching e concorrência (como foi implementado)
+### `likely_devops`, off by default
 
-Não existe endpoint de batch na API da TypeSafe. **Batching acontece dentro de
-uma request**: você coloca vários itens no `state` e faz uma pergunta por item,
-na mesma chamada. Todas as perguntas de uma request são avaliadas em paralelo,
-então 20 candidatos x 7 sinais custam 1 round trip e 142 perguntas, não 20
-round trips.
+A bonus signal exists for build and release infrastructure (CI/CD, registries,
+artifact stores, deployment controllers), triggered by names such as `jenkins`,
+`ci`, `build`, `deploy`, `argocd`, `drone`, `tekton`. It is not in the default
+set because it costs one more question per asset, about 12% more tokens. Turn it
+on and weight it:
 
-Isso dá dois botões independentes:
+```bash
+jev-recon hosts.txt --signals production,admin,devops \
+    --weights 'admin=0.4,devops=0.4,production=0.2' --output infra.json
+```
 
-| botão | controla | efeito |
+## 3. Batching and concurrency (how it is implemented)
+
+There is no batch endpoint in the TypeSafe API. **Batching happens inside a
+single request**: you put several items in the `state` and ask one question per
+item, in the same call. All questions in a request are evaluated in parallel, so
+20 candidates x 7 signals cost 1 round trip and 142 questions, not 20 round
+trips.
+
+That gives two independent knobs:
+
+| knob | controls | effect |
 | --- | --- | --- |
-| `--batch-size` | candidatos por request | menos requests, latência menor; lote grande demais dilui a atenção do modelo |
-| `--concurrency` | requests em voo (asyncio + `Semaphore`) | throughput; 20 já satura o rate limit de requests/min |
+| `--batch-size` | candidates per request | fewer requests, lower latency; too large a batch dilutes the model's attention |
+| `--concurrency` | requests in flight (asyncio + `Semaphore`) | throughput; 20 already saturates the requests-per-minute rate limit |
 
-Implementação em `jev.py`:
+Implementation in `jev.py`:
 
-1. `effective_batch_size()` reduz o lote, antes de qualquer chamada, para caber
-   nos limites documentados (`--max-questions-per-request`, default 220, e
-   `--max-request-tokens`, default 24.000, contra o teto documentado de 32k para
-   `state` + a pergunta mais longa e 64k no total).
-2. `split_batches()` fatia os candidatos.
-3. `asyncio.gather` + `asyncio.Semaphore(concurrency)`, com um `httpx.AsyncClient`
-   compartilhado e `Limits(max_connections=concurrency)`.
-4. Nenhum lote é descartado em silêncio: lote que falha gera assets com
-   `priority: null`, `incomplete: true` e `batch.batch_error` preenchido, e o
-   processo sai com código 1.
+1. `effective_batch_size()` shrinks the batch, before any call, to fit the
+   documented limits (`--max-questions-per-request`, default 220, and
+   `--max-request-tokens`, default 24,000, against the documented ceiling of 32k
+   for `state` plus the longest question and 64k overall).
+2. `split_batches()` slices the candidates.
+3. `asyncio.gather` plus `asyncio.Semaphore(concurrency)`, with one shared
+   `httpx.AsyncClient` and `Limits(max_connections=concurrency)`.
+4. No batch is dropped silently: a failed batch produces assets with
+   `priority: null`, `incomplete: true` and `batch.batch_error` filled in, and
+   the process exits with code 1.
 
-Nunca são disparadas 500.000 requests simultâneas. O teto é `--concurrency`, e o
-default é 8.
+Five hundred thousand simultaneous requests are never fired. The ceiling is
+`--concurrency`, default 8.
 
-**Onde o dinheiro vai** (medido, `--dry-run`): numa request de 20 candidatos,
-`state` = 2.422 tokens (121 por candidato) e `questions` = 18.753 tokens (132 por
-pergunta). O texto de `criteria` domina, e ele é reenviado uma vez por candidato,
-porque cada pergunta é sobre um item. Conclusão prática: ~1.050 tokens por asset,
-cerca de $0.000044 por asset a $0.042/Mtok de input (output é grátis), ou seja
-~$1.10 por 25.000 assets. Baixar `--signals` corta o custo proporcionalmente
-(3 sinais em vez de 7 = ~45% do custo). Aumentar `--batch-size` quase não muda o
-custo; ele é um botão de latência.
+**Where the money goes** (measured, `--dry-run`): in a request with 20
+candidates, `state` is 2,422 tokens (121 per candidate) and `questions` is 18,753
+tokens (132 per question). The `criteria` text dominates, and it is resent once
+per candidate, because each question is about one item. Practical conclusion:
+about 1,050 tokens per asset, roughly $0.000044 per asset at $0.042/Mtok of input
+(output is free), which is about $1.10 per 25,000 assets. Lowering `--signals`
+cuts the cost proportionally (3 signals instead of 7 is about 45% of the cost).
+Raising `--batch-size` barely changes cost; it is a latency knob.
 
-## 4. Ranking em Python
+## 4. Ranking in Python
 
-`rank.py`, sem modelo nenhum no meio:
+`rank.py`, with no model involved:
 
 ```python
 priority = (
@@ -505,22 +541,46 @@ priority = (
 )
 ```
 
-* Denominador = soma de todos os pesos configurados. Sinal que não veio **derruba**
-  o score em vez de ser renormalizado para fora: asset sem medição não pode
-  parecer mais interessante que asset medido.
-* Pesos são configuráveis e normalizados: `--weights 'production=0.3,staging=-0.1'`.
-  Peso negativo penaliza staging, coisa que o default não faz (o default ignora
-  `internal` e `staging`, exatamente como na fórmula acima).
-* Ordenação: prioridade, depois `relative_pick` do lote, depois nome.
-* `--threshold` decide o que vira "high-interest" (default 0.55).
+* Denominator is the sum of all configured weights. A signal that did not arrive
+  **drags the score down** instead of being renormalized away: an unmeasured
+  asset must not look more interesting than a measured one.
+* Weights are configurable and normalized: `--weights 'production=0.3,staging=-0.1'`.
+  A negative weight penalizes staging, which the default does not do (the default
+  ignores `internal` and `staging`, exactly as in the formula above).
+* Sorting: priority, then the batch `relative_pick`, then name.
+* `--threshold` decides what becomes "high-interest" (default 0.55).
 
-### Um serviço repetido por região não come a lista
+### Why an asset ranked where it did
 
-Enumeração gera cópias: `us-central-1.api.acme.com` até `us-central-8.api.acme.com`,
-`eu-west-1.api.acme.com`, `us-west-1.api.acme.com`. São **um** serviço. Gastar análise
-manual na quarta região depois de ver a primeira não rende nada, então o output
-agrupa por *shape*: o nome com tokens de região, versão, contador e hash
-removidos.
+`reasons` is computed in code from the numbers and the facts:
+
+```
+WHY (top 2)
+────────────────────────────────────
+0.94  jenkins.api.corp.com
+      ├─ admin 0.99  admin or management surface
+      ├─ devops 0.93  build or deploy infrastructure
+      ├─ production 0.86  live production system
+      └─ code: known labels jenkins, api
+0.59  grafana.corp.com
+      ├─ admin 0.96  admin or management surface
+      ├─ production 0.86  live production system
+      └─ code: known labels grafana
+```
+
+Signals appear when they cross 0.60, ordered by `weight x value`, so the top line
+is the reason that moved the score. Then the facts: the environment token, the
+privileged labels, a gated `HTTP 401/403`, the page title, the detected
+technologies. An asset with nothing above the floor prints
+`no signal above the floor` instead of an invented reason.
+
+### One service repeated across regions does not eat the list
+
+Enumeration produces copies: `us-central-1.api.acme.com` through
+`us-central-8.api.acme.com`, `eu-west-1.api.acme.com`, `us-west-1.api.acme.com`. These are
+**one** service. Spending manual analysis on the fourth region after seeing the
+first yields nothing, so the output groups by *shape*: the name with region,
+version, counter and hash tokens removed.
 
 ```
 us-central-3.api.acme.com        -> api.acme.com
@@ -529,35 +589,35 @@ api.widget-v2.acme.com             -> api.widget.acme.com
 widget-3p5-0621.us-east-1.api.acme.com -> api.widget.acme.com
 ```
 
-Tokens de ambiente ficam: `dev-api` e `api` continuam sendo superfícies
-diferentes, não cópias. `--max-per-shape` (default 2) mantém no output as N
-melhores de cada shape e marca o resto com `suppressed_by_shape`, `shape_rank` e
-`same_shape_count`. `--max-per-shape 0` desliga. Todo asset continua no
-`--all-output`, e o funil informa quantas cópias foram contidas.
+Environment tokens stay: `dev-api` and `api` remain different surfaces, not
+copies. `--max-per-shape` (default 2) keeps the best N of each shape in the
+output and marks the rest with `suppressed_by_shape`, `shape_rank` and
+`same_shape_count`. `--max-per-shape 0` disables it. Every asset stays in
+`--all-output`, and the funnel reports how many copies were held back.
 
-Medido nos 195 hosts de um alvo real:
+Measured on 195 hosts of a real target:
 
 ```
-antes:   49 high-interest, com 12 dos 30 primeiros sendo *.api.acme.com (uma por regiao)
-depois:  38 high-interest (11 copias contidas)
+before:  49 high-interest, with 12 of the top 30 being *.api.acme.com (one per region)
+after:   38 high-interest (11 copies held back)
 
-top shapes no output: 2 api.widget.acme.com · 2 api.acme.com · 2 api.embedding.fte5.models.acme.com
-suprimidos:           eu-west-1.api · us-west-1.api · us-central-1..8.api  (copia #3 a #11)
+top shapes in output: 2 api.widget.acme.com · 2 api.acme.com · 2 api.embedding.fte5.models.acme.com
+suppressed:           eu-west-1.api · us-west-1.api · us-central-1..8.api  (copy #3 to #11)
 ```
 
-O shape é uma heurística de string exata, feita em código, e é conservadora de
-propósito: ela derruba cópias óbvias (região, versão, contador, hash) mas não
-tenta adivinhar equivalência semântica (`sso-auth` e `sso` seguem como shapes
-diferentes). Julgar se dois nomes são o mesmo serviço é decisão semântica, e essa
-fica com o modelo ou com você, não com um regex.
+The shape is an exact string heuristic, done in code, and deliberately
+conservative: it removes obvious copies (region, version, counter, hash) but does
+not try to guess semantic equivalence (`sso-auth` and `sso` stay different
+shapes). Deciding whether two names are the same service is a semantic judgment,
+and that belongs to the model or to you, not to a regex.
 
-### O que os pesos default fazem com dados reais
+### What the default weights do to real data
 
-Medido numa amostra real: `likely_production` volta **baixo** (0.24 a 0.48) para
-infra interna, porque a pergunta é literal sobre servir usuários ou clientes
-reais, e um bastion ou um Postgres interno não serve cliente nenhum. Com os
-pesos default, isso segura o topo da lista em ~0.63 e empurra justamente esses
-assets para baixo:
+Measured on a real sample: `likely_production` comes back **low** (0.24 to 0.48)
+for internal infrastructure, because the question is literal about serving real
+users or customers, and a bastion or an internal Postgres serves no customer.
+With the default weights this caps the top of the list around 0.63 and pushes
+exactly those assets down:
 
 ```
 0.63  us-east-1.argocd.globex.com.br     prod 0.39  sens 0.80  admin 0.89
@@ -565,8 +625,8 @@ assets para baixo:
 0.60  eu-west-1.bastion.tyrell-corp.com  prod 0.27  sens 0.91  admin 0.86
 ```
 
-Se o seu alvo é painel interno, e não superfície pública, tire peso de
-`production` e ponha em `sensitive`/`admin`:
+If your target is an internal panel rather than a public surface, take weight
+away from `production` and put it on `sensitive` and `admin`:
 
 ```
 --weights 'sensitive=0.35,admin=0.30,api=0.10,interesting=0.25'
@@ -577,68 +637,98 @@ Se o seu alvo é painel interno, e não superfície pública, tire peso de
 0.73  us-east-1.rdp.acme-corp.net        prod 0.40  sens 0.85  admin 0.81
 ```
 
-Com `--cache` a segunda rodada custa zero e sai em menos de um segundo, então
-calibrar peso é barato: roda uma vez, re-pesa quantas vezes quiser.
+With `--cache` the second pass costs nothing and finishes in under a second, so
+calibrating weights is cheap: run once, re-weight as many times as you like.
 
-## 5. Erros e rate limits
+## 5. Errors and rate limits
 
-Sem depender de SDK: o cliente HTTP implementa o que a doc recomenda
-("retry with exponential backoff").
+No SDK dependency: the HTTP client implements what the docs recommend ("retry
+with exponential backoff").
 
-| situação | tratamento |
+| situation | handling |
 | --- | --- |
-| `429 Too Many Requests` | backoff exponencial com jitter, honrando `retry-after` (segundos ou data HTTP). A pausa é **global**: um `_resume_at` compartilhado faz todos os workers esperarem, senão a concorrência recria o 429 |
-| `529 Overloaded` / `5xx` / `408` / timeout / erro de rede | retry com backoff até `--max-retries` (default 4) |
-| `422 Unprocessable Entity` | lote grande demais ou pergunta inválida. O cliente **divide o lote na metade e tenta de novo** (até 3 níveis), em vez de perder candidatos |
-| `401` | erro fatal, com mensagem apontando a `TYPESAFE_API_KEY`; exit 2 |
-| lote falhou de vez | assets saem com `priority: null`, `incomplete: true`, `batch_error`, aviso no stderr, exit 1. `--strict` aborta na primeira falha |
-| `answers` ausente ou `type` diferente do esperado | tratado como sinal `null`, não como zero |
-| nenhuma request | `--dry-run` mostra o plano completo e não chama a API |
+| `429 Too Many Requests` | exponential backoff with jitter, honoring `retry-after` (seconds or HTTP date). The pause is **global**: a shared `_resume_at` makes every worker wait, otherwise concurrency recreates the 429 |
+| `529 Overloaded` / `5xx` / `408` / timeout / network error | retry with backoff up to `--max-retries` (default 4) |
+| `422 Unprocessable Entity` | batch too large or invalid question. The client **splits the batch in half and retries** (up to 3 levels deep) instead of losing candidates |
+| `401` | fatal error, with a message pointing at `TYPESAFE_API_KEY`; exit 2 |
+| batch failed for good | assets come out with `priority: null`, `incomplete: true`, `batch_error`, a warning on stderr, exit 1. `--strict` aborts on the first failure |
+| missing `answers`, or an unexpected `type` | treated as a `null` signal, not as zero |
+| no request at all | `--dry-run` shows the full plan and never calls the API |
 
-Evidência real dos caminhos de erro em `examples/fault-injection.txt`: 429
-honrando `retry-after`, 503 com retry, 422 dividindo lote, 297 splits, e ainda
-assim 1.983/1.983 assets pontuados com 0 lotes perdidos.
+Real evidence of the error paths is in `examples/fault-injection.txt`: 429
+honoring `retry-after`, 503 with retry, 422 splitting batches, 297 splits, and
+still 1,983/1,983 assets scored with 0 batches lost.
 
-## 6. Limites conhecidos do Jev (e como o projeto lida)
+## 6. Known limits of Jev (and how the project handles them)
 
-Da página de jaggedness do `jev-1.13`, aplicado aqui:
+From the jaggedness page of `jev-1.13`, applied here:
 
-* **Leitura literal**: criteria explícito nos dois lados de cada Noul.
-* **Não conta, não faz matemática**: nada de "quantos subdomínios têm X".
-  Recorrência, ordenação e pesos ficam em código.
-* **Context rot**: o `state` carrega só o necessário (nome, labels, fatos,
-  metadata que você forneceu). `--batch-size` controla o quanto de material não
-  relacionado vai junto: lote menor tende a mais precisão, lote maior a menos
-  latência. Teste com o seu dado.
-* **Conteúdo adversarial**: `title` e outros campos vêm de fora e são dados, não
-  instruções. O Jev não trata state como hostil por padrão; se você roda isso em
-  assets de terceiros, trate `title`/`technologies` como entrada não confiável e
-  valide o resultado antes de agir.
-* **Indireção**: as perguntas são uma decisão cada, e apontam o caminho no state
-  (`candidates[3]`), em vez de esconder vários julgamentos numa pergunta.
-* Pergunta holística (`interesting_for_security_research`) é mantida a pedido,
-  mas o sinal que carrega a decisão é a composição dos outros: ela é a pergunta
-  que um LLM tradicional responderia, e está aqui para ser comparada.
+* **Literal reading**: explicit criteria on both sides of every Noul.
+* **It does not count, it does not do math**: no "how many subdomains have X".
+  Recursion, sorting and weights stay in code.
+* **Context rot**: the `state` carries only what is needed (name, labels, facts,
+  metadata you supplied). `--batch-size` controls how much unrelated material
+  travels with it: a smaller batch tends to more precision, a larger one to less
+  latency. Test it on your own data.
+* **Adversarial content**: `title` and other fields come from outside and are
+  data, not instructions. Jev does not treat state as hostile by default; if you
+  run this against third-party assets, treat `title`/`technologies` as untrusted
+  input and validate the result before acting.
+* **Indirection**: each question is one decision, and points at its path in the
+  state (`candidates[3]`) instead of hiding several judgments in one question.
+* The holistic question (`interesting_for_security_research`) is kept on request,
+  but the signal that carries the decision is the composition of the others: it
+  is the question a traditional LLM would answer, and it is here to be compared.
 
-## 7. Testes e demo sem API key
+## 7. Does the semantic ranking beat a keyword list?
+
+`BENCHMARK.md`, with `scripts/make_benchmark.py` and `scripts/benchmark.py`. Five
+methods (random, name heuristic, evidence keyword regex, Jev on names, Jev on
+names plus evidence) scored with precision and recall at the top 5, 10 and 20
+percent, on 300 hosts whose names carry no information about the label by
+construction, averaged over three label draws:
+
+```
+method                   P@10%   R@10%   |   P@20%   R@20%
+random                   0.333   0.111   |   0.311   0.207
+name heuristic           0.278   0.093   |   0.295   0.196
+evidence keywords        0.978   0.326   |   0.689   0.459
+jev (names)              0.200   0.067   |   0.233   0.156
+jev (names+evidence)     0.967   0.322   |   0.956   0.637
+```
+
+* Names alone land at chance, which is the point of the design: with no evidence
+  there is no signal to extract, whatever the method.
+* At the top 10% the keyword regex is slightly ahead (it maximizes precision by
+  only ever finding the obvious). At the top 20% it collapses to 0.689 while Jev
+  holds 0.956, with recall 0.637 against 0.459. The word list runs out of things
+  to find at around 30% coverage; Jev keeps finding.
+* On the tier where the evidence is ambiguous (a generic title behind a 401/403)
+  the regex scores zero by construction, and Jev only gets there after the
+  criteria explicitly describe that condition. Full write-up, including the
+  negative result and what the benchmark does not prove, in `BENCHMARK.md`.
+
+## 8. Tests and demo without an API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests     # 62 testes, sem dependências extras
+.venv/bin/python -m unittest discover -s tests     # 62 tests, no extra dependencies
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
 
-A suíte roda igual sob pytest e unittest, de qualquer diretório e sem instalar o
-pacote (`tests/_bootstrap.py` põe a raiz e `scripts/` no `sys.path`; o unittest
-não lê `conftest.py` e o pytest puro não adiciona o cwd).
+The suite runs the same under pytest and unittest, from any directory and without
+installing the package (`tests/_bootstrap.py` puts the repo root and `scripts/`
+on `sys.path`; unittest does not read `conftest.py` and bare pytest does not add
+the working directory).
 
-Os testes cobrem o pré-processamento, a aritmética do ranking, e ponta a ponta
-contra o mock: uma request por lote, concorrência (12 lotes com latência
-artificial terminam bem antes de serial), 429 com `retry-after`, 503 com retry,
-422 dividindo lote, chave inválida, endpoint morto (exit 1, assets preservados
-como `incomplete`), pesos customizados, `--dry-run` e os arquivos de saída.
+The tests cover preprocessing, the ranking arithmetic, and end to end against the
+mock: one request per batch, concurrency (12 batches with artificial latency
+overlap in flight), 429 with `retry-after`, 503 with retry, 422 splitting a
+batch, an invalid key, a dead endpoint (exit 1, assets preserved as
+`incomplete`), custom weights, `--dry-run`, the output files, missing `--meta`
+and input files, and the threshold warning.
 
-`scripts/mock_typesafe_server.py` responde no formato documentado, com injeção de
-falha:
+`scripts/mock_typesafe_server.py` answers in the documented format, with fault
+injection:
 
 ```bash
 # terminal 1
@@ -648,26 +738,27 @@ falha:
 .venv/bin/python scripts/gen_sample.py 50000 > subdomains.txt
 .venv/bin/python -m jev_recon subdomains.txt \
   --base-url http://127.0.0.1:8712 --api-key mock-key-0123456789abcdef \
-  --threshold 0.70 --explain 8
+  --threshold 0.55 --explain 8
 ```
 
-O mock não é um modelo: ele pontua por tokens do nome e um hash. Serve para
-exercitar o pipeline inteiro (e os erros) sem chave e sem custo. Os números de
-`usage` mostrados nas demos vêm da contabilidade do próprio mock; em produção,
-leia `usage` da resposta real e o `model` que respondeu (o alias
-`jev-latest` se move entre versões; o código registra isso no `--report`).
+The mock is not a model: it scores by name tokens and a hash. It exists to
+exercise the whole pipeline (and the failures) with no key and no cost. The
+`usage` numbers shown in the demos come from the mock's own accounting; in
+production, read `usage` from the real response and the `model` that answered
+(the `jev-latest` alias moves between versions, and the code records which one
+answered in `--report`).
 
-Flags de injeção: `--rate-limit-every N`, `--retry-after S`, `--fail-every N`,
+Injection flags: `--rate-limit-every N`, `--retry-after S`, `--fail-every N`,
 `--reject-over-questions N`, `--latency S`.
 
-## 8. Referências
+## 9. References
 
 * API: https://docs.typesafe.ai/api
-* Primitivas (Choice, Score, Noul): https://docs.typesafe.ai/primitives
+* Primitives (Choice, Score, Noul): https://docs.typesafe.ai/primitives
 * State: https://docs.typesafe.ai/concepts/state
 * Composite scoring: https://docs.typesafe.ai/patterns/composite-scoring
 * Speculative fan-out: https://docs.typesafe.ai/patterns/fan-out
 * Re-ranking: https://docs.typesafe.ai/cookbooks/rerank_typesafe
 * Batching / parallel questions: https://docs.typesafe.ai/cookbooks/parallel_questions
-* Jaggedness do Jev 1.13: https://docs.typesafe.ai/model-jaggedness/jev-1.13
-* Modelos e limites: https://docs.typesafe.ai/models
+* Jev 1.13 jaggedness: https://docs.typesafe.ai/model-jaggedness/jev-1.13
+* Models and limits: https://docs.typesafe.ai/models

@@ -1,4 +1,4 @@
-# dominio proprio, 5 hosts: subfinder | jev-recon (stdin) + httpx como --meta
+# own domain, 5 hosts: subfinder | jev-recon (stdin) with httpx as --meta
 
 $ subfinder -d pwnd.blog -silent | sort -u | tee hosts.txt | wc -l
 5
@@ -63,7 +63,7 @@ RUN
   "wall_seconds": 1.09
 }
 
-# mesma cache, pesos diferentes: re-rankear nao se paga de novo
+# same cache, different weights: re-ranking is not paid twice
 $ jev-recon - --meta probe.json --cache jev-cache.json --weights 'sensitive=0.35,admin=0.30,interesting=0.35'
 
 TOP ASSETS
