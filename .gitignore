@@ -21,8 +21,9 @@ demo-cache.json
 bench/
 bench-*/
 
-# saída de execução real: hostname de alvo não entra em git
-hi.json
+# saída de execução real e entrada de alvo: hostname nunca entra em git
+/*.txt
+!requirements.txt
 hi*.json
 gov*.json
 *.jsonl
