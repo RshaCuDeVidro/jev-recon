@@ -32,7 +32,7 @@ jev-recon/
 │   ├── make_benchmark.py         conjuntos rotulados para o benchmark
 │   ├── benchmark.py              Jev x heurística x aleatório (ver BENCHMARK.md)
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                61 testes (unittest, sem dependências extras)
+├── tests/                62 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
 ├── requirements.txt      httpx
 ├── pyproject.toml
@@ -623,7 +623,7 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 ## 7. Testes e demo sem API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests     # 61 testes, sem dependências extras
+.venv/bin/python -m unittest discover -s tests     # 62 testes, sem dependências extras
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
 

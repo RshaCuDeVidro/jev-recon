@@ -25,6 +25,7 @@ from .preprocess import (
     prepare,
 )
 from .rank import (
+    SIGNAL_ALIASES,
     build_assets,
     diversify,
     parse_weights,
@@ -33,18 +34,12 @@ from .rank import (
 )
 from .signals import DEFAULT_SIGNAL_ORDER, SIGNALS
 
-SIGNAL_SHORT = {
-    "production": "likely_production",
-    "sensitive": "likely_sensitive",
-    "internal": "likely_internal",
-    "staging": "likely_staging",
-    "admin": "likely_admin",
-    "api": "likely_api",
-    "interesting": "interesting_for_security_research",
-}
+#: short name -> question id, derived so a new signal shows up here for free
+SIGNAL_SHORT = {k: v for k, v in SIGNAL_ALIASES.items() if k != "relative_pick"}
 SIGNAL_HEADER = {
     "production": "prod", "sensitive": "sens", "internal": "intl",
-    "staging": "stag", "admin": "admin", "api": "api", "interesting": "inter",
+    "staging": "stag", "admin": "admin", "api": "api", "devops": "devops",
+    "interesting": "inter",
 }
 BAR = "─" * 36
 
@@ -502,7 +497,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reasons", type=int, default=0,
                         help="print the why-tree for the first N assets")
     parser.add_argument("--signals", default=None,
-                        help="comma list: production,sensitive,internal,staging,admin,api,interesting")
+                        help="comma list of signals; devops is available but off by default")
     parser.add_argument("--weights", default=None,
                         help='weights, e.g. \'{"production":0.25,"sensitive":0.25,'
                              '"admin":0.15,"api":0.15,"interesting":0.2}\' or k=v pairs')

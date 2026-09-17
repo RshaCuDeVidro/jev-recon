@@ -293,6 +293,29 @@ class TestCli(unittest.TestCase):
         self.assertIn("no asset reached --threshold 0.99", message)
         self.assertIn("try --threshold", message)
 
+    def test_devops_is_available_off_the_default_path(self):
+        """One extra question per asset, so it is opt-in, and it must answer."""
+        out = os.path.join(self.tmp.name, "devops.json")
+        with MockServer() as server:
+            code = main([
+                self.input, "--output", out, "--base-url", server.base_url,
+                "--api-key", API_KEY, "--threshold", "0.0", "--top", "0",
+                "--signals", "production,admin,devops",
+                "--weights", "admin=0.4,devops=0.4,production=0.2",
+                "--quiet", "--env-file", os.path.join(self.tmp.name, "nope.env"),
+            ])
+        self.assertEqual(code, 0)
+        payload = json.loads(open(out).read())
+        self.assertTrue(payload)
+        for record in payload:
+            self.assertIn("likely_devops", record["signals"])
+            self.assertIsNotNone(record["signals"]["likely_devops"])
+            self.assertEqual(set(record["weights_used"]), {"admin", "devops", "production"})
+            self.assertFalse(record["missing_signals"])
+        top = payload[0]["hostname"]
+        self.assertIn(top, {"jenkins.example.com", "grafana.example.com",
+                            "admin-api.example.com", "dashboard.example.com"})
+
     def test_missing_meta_file_explains_itself(self):
         """A --meta path that does not exist yet must not dump a raw errno."""
         import contextlib

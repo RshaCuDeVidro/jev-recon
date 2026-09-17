@@ -142,6 +142,15 @@ def score_candidate(host: str, meta: dict) -> dict[str, float]:
         - 0.15 * len(noise)
     )
 
+    devops_labels = {"jenkins", "ci", "cd", "build", "deploy", "argocd",
+                     "registry", "drone", "tekton", "gitlab-runner", "runner",
+                     "release", "artifact", "nexus", "artifactory", "sonar"}
+    devops_hits = [l for l in labels if l in devops_labels]
+    if meta.get("technologies"):
+        devops_hits += [t for t in meta["technologies"]
+                        if str(t).lower() in devops_labels]
+    devops_v = 0.08 + 0.85 * (1 if devops_hits else 0)
+
     j = lambda salt: (jitter(host, salt) - 0.5) * 0.06
     return {
         "likely_production": clamp(production + j("p")),
@@ -150,6 +159,7 @@ def score_candidate(host: str, meta: dict) -> dict[str, float]:
         "likely_staging": clamp(staging_v + j("t")),
         "likely_admin": clamp(admin_v + j("a")),
         "likely_api": clamp(api_v + j("ap")),
+        "likely_devops": clamp(devops_v + j("d")),
         "interesting_for_security_research": clamp(interesting + j("in")),
     }
 
