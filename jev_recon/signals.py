@@ -38,7 +38,9 @@ SIGNALS: dict[str, tuple[str, str, str]] = {
         "GitLab, MinIO, Elasticsearch), or an HTTP 401 or 403 that says "
         "something behind the wall requires a credential.",
         "Only public content, marketing pages, static assets, or functionality "
-        "whose exposure would not by itself be a confidentiality problem.",
+        "whose exposure would not by itself be a confidentiality problem. "
+        "Delivery or tracking namespaces owned by a third party are not the "
+        "company's own sensitive surface.",
     ),
     "likely_internal": (
         "Is `{path}` likely used by employees, contractors, or internal services "
@@ -76,7 +78,10 @@ SIGNALS: dict[str, tuple[str, str, str]] = {
         "human-facing page?",
         "REST, GraphQL, gRPC, SOAP, or webhook endpoints, API gateways, service "
         "meshes, or host names built from api, apis, gw, graphql, rpc, or a "
-        "service-to-service naming scheme.",
+        "service-to-service naming scheme. Do not count a delivery or tracking "
+        "namespace owned by a third party, such as a click, links or tracking "
+        "label combined with an email or mail label, even when the name also "
+        "carries api or admin.",
         "A browser-facing page, a static file host, a mail or DNS record, or an "
         "asset whose metadata describes only HTML content.",
     ),

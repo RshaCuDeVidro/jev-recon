@@ -18,7 +18,8 @@ from jev_recon.rank import (
     sort_assets,
     summary,
 )
-from jev_recon.preprocess import name_shape  # noqa: E402
+from jev_recon.preprocess import name_shape, tracking_namespace  # noqa: E402
+from jev_recon.preprocess import ParserOptions, prepare  # noqa: E402
 
 
 class FakeCandidate:
@@ -287,6 +288,51 @@ class TestShapeDiversity(unittest.TestCase):
         self.assertEqual(len(kept), 4)
         self.assertEqual(dropped, 0)
         self.assertEqual([a["shape_rank"] for a in assets], [1, 2, 3, 4])
+
+
+class TestTrackingNamespace(unittest.TestCase):
+    """Third-party delivery infra wears the target's domain and a fancy label."""
+
+    def test_two_vocabularies_meeting_is_what_makes_it_tracking(self):
+        pos = ["click.c.email.api.acme.com", "click.email.acme.com",
+               "c.email.acme.com", "track.links.mail.acme.com",
+               "url.ct.mailer.acme.com", "email.click.sso.acme.com"]
+        neg = ["mail.acme.com", "smtp.acme.com", "email.acme.com",
+               "api.acme.com", "click.acme.com", "admin.email.acme.com",
+               "links.acme.com"]
+        for host in pos:
+            self.assertTrue(tracking_namespace(tuple(host.split("."))), msg=host)
+        for host in neg:
+            self.assertFalse(tracking_namespace(tuple(host.split("."))), msg=host)
+
+    def test_the_fact_is_computed_in_code_and_shipped_in_pre(self):
+        report = prepare(["click.c.email.api.acme.com", "mail.acme.com"],
+                         ParserOptions())
+        facts = {c.hostname: c.pre["tracking_namespace"] for c in report.candidates}
+        self.assertTrue(facts["click.c.email.api.acme.com"])
+        self.assertFalse(facts["mail.acme.com"])
+
+    def test_penalty_demotes_the_decoy_and_says_why(self):
+        """The criteria text did not move these (7/15 before and after); the
+        rule in code does, which is where a mechanical rule belongs."""
+        hosts = ["click.c.email.api.acme.com", "api.acme.com"]
+        candidates = {h: FakeCandidate(h) for h in hosts}
+        for candidate in candidates.values():
+            candidate.pre["tracking_namespace"] = tracking_namespace(
+                tuple(candidate.hostname.split("."))
+            )
+        same = {"likely_api": 0.9, "likely_sensitive": 0.8}
+        outcome = FakeOutcome(hosts, [dict(same), dict(same)])
+
+        by_host = {a["hostname"]: a for a in build_assets(
+            [outcome], candidates, DEFAULT_WEIGHTS)}
+        decoy, real = by_host[hosts[0]], by_host[hosts[1]]
+        self.assertEqual(decoy["priority"], round(real["priority"] * 0.5, 3))
+        self.assertIn("code: third-party tracking namespace", decoy["reasons"])
+
+        off = {a["hostname"]: a["priority"] for a in build_assets(
+            [outcome], candidates, DEFAULT_WEIGHTS, tracking_penalty=1.0)}
+        self.assertEqual(off[hosts[0]], off[hosts[1]])
 
 
 if __name__ == "__main__":

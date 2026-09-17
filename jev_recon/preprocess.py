@@ -108,6 +108,21 @@ REGION_RE = re.compile(
 )
 VERSION_RE = re.compile(r"^(v|ver|rev|r)?\d+([a-z]\d+)?$|^[0-9a-f]{8,}$")
 
+#: Third-party tracking and delivery namespaces wear the target's domain and a
+#: privileged label: `click.c.email.api.acme.com` is an email provider's click
+#: tracker, not an API. Two vocabularies have to meet for that to be true, a
+#: delivery one and a tracking one, so a plain `mail.acme.com` stays what it is.
+DELIVERY_LABELS = frozenset({
+    "email", "emails", "mail", "mailer", "smtp", "sendgrid", "mailgun",
+    "mandrill", "sparkpost", "sendinblue", "brevo", "hubspot", "marketo",
+    "mailchimp", "campaign", "campaigns", "newsletter", "bulk",
+})
+TRACKING_LABELS = frozenset({
+    "click", "clicks", "cl", "ct", "c", "t", "track", "tracking", "tracker",
+    "links", "link", "url", "urls", "open", "opens", "beacon", "beacons",
+    "pixel", "pixels", "redirect", "redirects",
+})
+
 #: Suffixes reserved by RFC 2606 / 6761 and friends.
 RESERVED_SUFFIXES = (
     ".invalid", ".test", ".localhost", ".example", ".localdomain", ".home.arpa",
@@ -320,8 +335,20 @@ def extract_facts(host: str, labels: tuple[str, ...], opts: ParserOptions) -> di
         "digit_share": round(digits / len(host), 2),
         "has_hyphen": "-" in host,
         "label_count": len(labels),
+        "tracking_namespace": tracking_namespace(labels),
     }
     return facts
+
+
+def tracking_namespace(labels: tuple[str, ...]) -> bool:
+    """A delivery vocabulary meeting a tracking vocabulary: provider infra.
+
+    ``click.c.email.api.acme.com`` carries both, so it is an email provider's
+    click tracker that happens to sit under the target's domain. ``mail.acme.com``
+    carries only the first, so it stays a mail server.
+    """
+    seen = {piece for label in labels[:-2] for piece in label.split("-")}
+    return bool(seen & DELIVERY_LABELS) and bool(seen & TRACKING_LABELS)
 
 
 def name_shape(host: str, labels: tuple[str, ...]) -> str:

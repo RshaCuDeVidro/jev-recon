@@ -316,6 +316,32 @@ class TestCli(unittest.TestCase):
         self.assertIn(top, {"jenkins.example.com", "grafana.example.com",
                             "admin-api.example.com", "dashboard.example.com"})
 
+    def test_dry_run_says_how_much_of_the_plan_is_already_cached(self):
+        """A cache hit needs an identical state and question set, so an edited
+        question re-bills the list. Learning that from the bill is too late."""
+        cache_path = os.path.join(self.tmp.name, "probe-cache.json")
+        tail = ["--cache", cache_path, "--env-file", os.path.join(self.tmp.name, "nope.env")]
+        with MockServer() as server:
+            dry = ["--base-url", server.base_url, "--api-key", API_KEY, "--dry-run", *tail]
+            cold = self.capture([self.input, *dry])
+            main([self.input, "--base-url", server.base_url, "--api-key", API_KEY,
+                  "--quiet", *tail])                       # real call, now cached
+            warm = self.capture([self.input, *dry])
+        self.assertIn("already cached        0 of", cold)
+        self.assertNotIn("requests sent", cold)
+        self.assertIn("already cached        1 of 1 requests", warm)
+        self.assertIn("would cost $0.0000", warm)
+        self.assertNotIn("requests sent", warm)
+
+    def capture(self, argv: list[str]) -> str:
+        import contextlib
+        import io
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(main(argv), 0)
+        return buffer.getvalue()
+
     def test_missing_meta_file_explains_itself(self):
         """A --meta path that does not exist yet must not dump a raw errno."""
         import contextlib

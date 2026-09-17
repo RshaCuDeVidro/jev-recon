@@ -67,7 +67,7 @@ def metrics(ranking: list[str], labels: dict[str, str], k: float,
     cutoff = max(1, int(len(ranking) * k))
     top = ranking[:cutoff]
     if tier is None:
-        gold = {h for h, t in labels.items() if t != "boring"}
+        gold = {h for h, t in labels.items() if t in ("obvious", "subtle")}
     else:
         gold = {h for h, t in labels.items() if t == tier}
     hits = len(set(top) & gold)
@@ -115,6 +115,15 @@ def jev_scores(rows: list[dict], with_evidence: bool, cache_path: str | None,
     return scores
 
 
+def decoy_hits(ranking: list[str], labels: dict[str, str], k: float) -> dict:
+    """How many third-party-looking decoys made it into the top slice."""
+    cutoff = max(1, int(len(ranking) * k))
+    decoys = {h for h, t in labels.items() if t == "decoy"}
+    hits = len(set(ranking[:cutoff]) & decoys)
+    return {"cutoff": cutoff, "decoys": len(decoys), "hits": hits,
+            "rate": round(hits / len(decoys), 3) if decoys else 0.0}
+
+
 def table(results: dict, method_names: list[str]) -> str:
     lines = []
     header = f"{'method':<20}" + "".join(f"{'P@'+str(int(k*100))+'%':>8}{'R@'+str(int(k*100))+'%':>8}" for k in KS)
@@ -132,6 +141,12 @@ def table(results: dict, method_names: list[str]) -> str:
             row = results["tiers"][tier][name][0.10]
             lines.append(f"    {name:<18}P {row['precision']:.3f}   R {row['recall']:.3f}"
                          f"   ({row['hits']}/{row['gold']} alvos de {row['cutoff']} posicoes)")
+    lines.append("")
+    lines.append("iscas de rastreio de terceiro no top 10% (menor melhor)")
+    for name in method_names:
+        row = results["decoys"][name][0.10]
+        lines.append(f"  {name:<20}{row['hits']:>3} de {row['decoys']}   ({row['rate']:.0%} "
+                     f"das iscas promovidas)")
     return "\n".join(lines)
 
 
@@ -181,11 +196,12 @@ def main() -> int:
     }
     rankings = {name: rank_by(hosts, scores) for name, scores in methods.items()}
 
-    results = {"overall": {}, "tiers": {"obvious": {}, "subtle": {}}}
+    results = {"overall": {}, "tiers": {"obvious": {}, "subtle": {}}, "decoys": {}}
     for name, ranking in rankings.items():
         results["overall"][name] = {k: metrics(ranking, labels, k) for k in KS}
         for tier in results["tiers"]:
             results["tiers"][tier][name] = {0.10: metrics(ranking, labels, 0.10, tier)}
+        results["decoys"][name] = {0.10: decoy_hits(ranking, labels, 0.10)}
 
     print()
     print(table(results, list(methods)))

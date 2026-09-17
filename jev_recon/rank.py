@@ -177,12 +177,34 @@ def explain(asset: dict) -> list[str]:
     if meta.get("technologies"):
         tech = meta["technologies"]
         facts.append(f"evidence: {', '.join(map(str, tech[:4]))}")
+    if pre.get("tracking_namespace"):
+        facts.append("code: third-party tracking namespace")
     if asset.get("incomplete"):
         facts.append("signals incomplete")
     return reasons + facts
 
 
-def build_assets(outcomes: list, candidates_by_host: dict, weights: dict) -> list[dict]:
+#: Facts that mean "this is not the target's own surface". Each one multiplies
+#: the priority by the penalty, in code, because a prompt is not where a
+#: mechanical rule belongs: measured against 15 label-rich tracking decoys, the
+#: criteria text alone changed nothing (7/15 promoted before, 7/15 after), while
+#: the evidence cleared them to 0/15. A name is not evidence, so the name-level
+#: rule is applied deterministically instead of asked for.
+PENALTY_FACTS = ("tracking_namespace",)
+
+
+def apply_penalties(priority: float | None, pre: dict, penalty: float) -> float | None:
+    """Demote facts that disqualify an asset, without touching anything else."""
+    if priority is None or penalty >= 1.0:
+        return priority
+    for fact in PENALTY_FACTS:
+        if pre.get(fact):
+            priority *= penalty
+    return round(priority, 3)
+
+
+def build_assets(outcomes: list, candidates_by_host: dict, weights: dict,
+                 tracking_penalty: float = 0.5) -> list[dict]:
     """Turn batch outcomes into ranked-ready asset records."""
     assets: list[dict] = []
     for outcome in outcomes:
@@ -198,6 +220,8 @@ def build_assets(outcomes: list, candidates_by_host: dict, weights: dict) -> lis
             namespace = score_namespace(signals, relative_pick)
             priority, used_weights, missing = compute_priority(namespace, weights)
             candidate = candidates_by_host.get(hostname)
+            pre = candidate.pre if candidate else {}
+            priority = apply_penalties(priority, pre, tracking_penalty)
             record = {
                 "hostname": hostname,
                 "priority": priority,
@@ -223,7 +247,7 @@ def build_assets(outcomes: list, candidates_by_host: dict, weights: dict) -> lis
                     "yield_confidence": outcome.batch_yield_confidence,
                     "batch_error": outcome.error,
                 },
-                "pre": candidate.pre if candidate else {},
+                "pre": pre,
                 "metadata": candidate.meta if candidate else {},
                 "incomplete": (
                     outcome.incomplete[position]

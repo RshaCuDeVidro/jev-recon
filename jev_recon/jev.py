@@ -257,7 +257,7 @@ class JevClient:
         }
         cache_key = None
         if self.cache is not None:
-            cache_key = self.cache.key(body)
+            cache_key = self.cache.key_for(payload)
             cached = self.cache.get(cache_key)
             if cached is not None:
                 self.stats.cache_hits += 1

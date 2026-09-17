@@ -235,6 +235,13 @@ def print_dry_run(plan: dict, payload: dict | None) -> None:
     print(f"  est. input tokens     {plan['estimated_input_tokens']:,}")
     print(f"  est. cost             ${plan['estimated_cost_usd']:.4f}"
           f"   (@ ${plan['price_per_mtok']}/Mtok, output free)")
+    if plan.get("cached") is not None:
+        cached, total = plan["cached"], plan["requests"]
+        print(f"  already cached        {cached} of {total} requests"
+              f"   (this run would cost ${plan['cached_cost_usd']:.4f})")
+        if cached < total:
+            print("  note: the cache key covers state, questions and model, so any")
+            print("        edit to a question invalidates every request that carries it")
     if payload:
         preview = json.dumps(payload, indent=2)
         if len(preview) > 2600:
@@ -332,6 +339,21 @@ async def run(args: argparse.Namespace) -> int:
         plan["estimated_cost_usd"] = round(
             plan["estimated_input_tokens"] / 1_000_000 * plan["price_per_mtok"], 5
         )
+        if cache is not None and batches:
+            # Cheaper than learning it from a bill: a cache hit needs an identical
+            # state and question set, so an edited question silently re-bills the
+            # whole list. Say it before spending, not after.
+            from .signals import build_request
+
+            hits = sum(
+                1 for batch in batches
+                if cache.get(ResponseCache.key_for(build_request(batch, client.model, signals)))
+                is not None
+            )
+            plan["cached"] = hits
+            plan["cached_cost_usd"] = round(
+                plan["estimated_cost_usd"] * (len(batches) - hits) / len(batches), 5
+            )
         print_funnel(
             len(lines), report, len(candidates), len(batches), batch_size,
             args.concurrency, 0, True, time.monotonic() - started,
@@ -365,7 +387,8 @@ async def run(args: argparse.Namespace) -> int:
         if cache is not None:
             cache.save()
 
-    assets = build_assets(outcomes, {c.hostname: c for c in candidates}, weights)
+    assets = build_assets(outcomes, {c.hostname: c for c in candidates}, weights,
+                          tracking_penalty=args.tracking_penalty)
     above = select(assets, args.threshold)
     high_interest, suppressed = diversify(above, args.max_per_shape)
     stats = client.stats.as_dict()
@@ -517,6 +540,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=0, help="analyze only the top N candidates")
     parser.add_argument("--max-per-parent", type=int, default=0,
                         help="cap candidates per registered parent domain (0 = off)")
+    parser.add_argument("--tracking-penalty", type=float, default=0.5,
+                        help="multiply the priority of a third-party tracking or "
+                             "delivery namespace; 1.0 disables")
     parser.add_argument("--max-per-shape", type=int, default=2,
                         help="keep at most N copies of the same service in the output "
                              "(us-central-3.api and eu-west-1.api are the same service); "

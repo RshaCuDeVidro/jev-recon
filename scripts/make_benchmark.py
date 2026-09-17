@@ -65,6 +65,22 @@ BORING_TITLES = [
 ]
 BORING_TECH = [["Vercel"], ["Cloudflare"], ["nginx"], ["Amazon S3"], ["Netlify"]]
 
+#: Decoys. Third-party tracking and delivery namespaces that LOOK privileged
+#: because they carry a label like api, admin or sso, plus an environment word.
+#: A method that matches labels promotes them; the evidence says otherwise (a
+#: redirect, nothing behind it). These are counted as boring, so every one that
+#: lands in the top slice costs the method precision.
+DECOY_NAMES = [
+    "click.c.email.{p}", "click.email.{p}", "c.email.{p}", "track.links.mail.{p}",
+    "email.api.{p}", "click.api.{p}", "links.email.{p}", "track.c.email.{p}",
+    "email.admin.{p}", "click.sso.{p}", "url.c.email.{p}", "track.api.{p}",
+    "email.console.{p}", "links.api.{p}", "click.admin.{p}",
+]
+DECOY_TITLES = ["Redirecting...", "Object Moved", "Just a moment...",
+                "Welcome to nginx!", "404 Not Found"]
+DECOY_TECH = [["Sendgrid"], ["SendGrid"], ["Cloudflare"], ["Amazon CloudFront"],
+              ["Vercel"], ["Mailgun"]]
+
 #: the quick keyword list a hunter writes in a minute. Used as a baseline by
 #: scripts/benchmark.py, defined here so both live in one readable place.
 KEYWORDS = ["admin", "login", "jenkins", "gitlab", "dashboard", "phpmyadmin",
@@ -73,8 +89,18 @@ KEYWORDS = ["admin", "login", "jenkins", "gitlab", "dashboard", "phpmyadmin",
 
 def build(n_hosts: int, n_gold: int, seed: int) -> tuple[list[dict], dict]:
     rng = random.Random(seed)
-    names = []
+    n_decoys = min(len(DECOY_NAMES), max(8, n_hosts // 20))
+    parents = PARENTS                                 # decoys sit under the same parents
+
+    names: list[str] = []
     used: set[str] = set()
+    decoy_set: set[str] = set()
+    for template in DECOY_NAMES[:n_decoys]:           # decoys first, then the pool
+        host = template.format(p=rng.choice(parents))
+        if host not in used:
+            used.add(host)
+            names.append(host)
+            decoy_set.add(host)
     while len(names) < n_hosts:
         host = rng.choice(NAME_POOL).format(n=rng.randint(1, 99))
         host = f"{host}.{rng.choice(PARENTS)}"
@@ -83,29 +109,38 @@ def build(n_hosts: int, n_gold: int, seed: int) -> tuple[list[dict], dict]:
         used.add(host)
         names.append(host)
 
-    gold_flags = [True] * n_gold + [False] * (n_hosts - n_gold)
+    rest = [h for h in names if h not in decoy_set]
+    gold_flags = [True] * n_gold + [False] * (len(rest) - n_gold)
     rng.shuffle(gold_flags)
-    n_obvious = int(n_gold * 0.66)
+    rng.shuffle(names)                                 # decoys mixed back in
 
+    n_obvious = int(n_gold * 0.66)
     rows: list[dict] = []
     labels: dict[str, str] = {}
-    for host, is_gold in zip(names, gold_flags):
-        if is_gold:
-            if n_obvious > 0:
-                _, page, tech = rng.choice(OBVIOUS)
-                n_obvious -= 1
-                labels[host] = "obvious"
-                status = rng.choice([200, 200, 403])
-            else:
-                page = rng.choice(SUBTLE_TITLES)
-                tech = rng.choice(SUBTLE_TECH)
-                labels[host] = "subtle"
-                status = rng.choice([401, 403])
+    for host in names:
+        if host in decoy_set:
+            labels[host] = "decoy"
+            page = rng.choice(DECOY_TITLES)
+            tech = rng.choice(DECOY_TECH)
+            status = rng.choice([301, 302, 404])
         else:
-            labels[host] = "boring"
-            page = rng.choice(BORING_TITLES)
-            tech = rng.choice(BORING_TECH)
-            status = rng.choice([200, 200, 301, 302, 404])
+            page, tech, is_gold = None, None, gold_flags.pop()
+            if is_gold:
+                if n_obvious > 0:
+                    _, page, tech = rng.choice(OBVIOUS)
+                    n_obvious -= 1
+                    labels[host] = "obvious"
+                    status = rng.choice([200, 200, 403])
+                else:
+                    page = rng.choice(SUBTLE_TITLES)
+                    tech = rng.choice(SUBTLE_TECH)
+                    labels[host] = "subtle"
+                    status = rng.choice([401, 403])
+            else:
+                labels[host] = "boring"
+                page = rng.choice(BORING_TITLES)
+                tech = rng.choice(BORING_TECH)
+                status = rng.choice([200, 200, 301, 302, 404])
         rows.append({
             "hostname": host,
             "http_status": status,
@@ -141,13 +176,15 @@ def main() -> int:
     with open(labels_path, "w", encoding="utf-8") as fh:
         json.dump(labels, fh, indent=1)
 
-    counts = {"obvious": 0, "subtle": 0, "boring": 0}
+    counts: dict[str, int] = {}
     for tier in labels.values():
-        counts[tier] += 1
+        counts[tier] = counts.get(tier, 0) + 1
     print(f"{len(rows)} hosts -> {hosts_path}")
     print(f"labels -> {labels_path}  {counts}")
     print("names carry no label signal by construction: both classes come from "
           f"{len(NAME_POOL)} name templates x {len(PARENTS)} parents")
+    print(f"decoys are label-rich tracking names with worthless evidence: "
+          f"{counts.get('decoy', 0)} hosts, counted as boring")
     return 0
 
 

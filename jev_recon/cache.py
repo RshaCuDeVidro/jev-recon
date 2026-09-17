@@ -40,6 +40,12 @@ class ResponseCache:
     def key(body: str) -> str:
         return hashlib.sha256(body.encode("utf-8")).hexdigest()[:32]
 
+    @staticmethod
+    def key_for(payload: dict) -> str:
+        """Key for a request body as it will be sent. One definition, so a
+        dry-run probe and the client can never disagree about a hit."""
+        return ResponseCache.key(json.dumps(payload))
+
     def get(self, key: str) -> dict | None:
         response = self.data.get(key)
         if response is None:

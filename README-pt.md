@@ -240,6 +240,8 @@ decisão
   --meta-all             mantém tudo, inclusive ruído
   --max-per-parent N     limita assets por domínio registrado
   --max-per-shape N      cópias do mesmo serviço no output (default 2, 0 desliga)
+  --tracking-penalty F   multiplica a prioridade de namespace de rastreio ou
+                         entrega de terceiro (default 0.5, 1.0 desliga)
   --drop-throwaway       descarta dev/test/qa (default: mantém e anota)
   --limit N              analisa só os N melhores do pre_rank
 
@@ -283,7 +285,8 @@ RUN
   tokens         in 26,076,079  out 526,263   est. cost $1.0952   (jev-1.13.0)
 ```
 
-`--dry-run` monta as requests e mostra o plano, sem gastar nada:
+`--dry-run` monta as requests, conta quantas já estão no `--cache` e mostra o plano,
+sem gastar nada:
 
 ```
   requests planned      14
@@ -291,7 +294,13 @@ RUN
   questions per request 142
   est. input tokens     374,065
   est. cost             $0.0157   (@ $0.042/Mtok, output free)
+  already cached        1239 of 1239 requests   (this run would cost $0.0000)
 ```
+
+Essa última linha é a proteção contra o erro mais caro que esta ferramenta já
+cometeu: a chave da cache cobre o state, as perguntas e o modelo, então editar uma
+pergunta invalida toda request que a carrega. Numa lista de 24.771 hosts isso é
+$1,30 silencioso. Peça o dry run antes.
 
 ### Entrada
 
