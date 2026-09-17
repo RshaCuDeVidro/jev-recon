@@ -1,7 +1,8 @@
 """The pre-commit hook that refuses to commit target data.
 
 It exists because `git add -A` shipped a 24,771 host list of a government target
-and a 249 host list from another engagement into a dozen commits. A file name is not a signal,
+and a 249 host list from another engagement into a dozen commits. A file name is
+not a signal,
 so the hook reads content, which means its two failure modes matter: refusing a
 real commit (annoying) and letting a hostname list through (the leak).
 """

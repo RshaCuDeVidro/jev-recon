@@ -2,7 +2,8 @@
 # Refuses to commit target data.
 #
 # Why this exists: `git add -A` shipped a 24,771 host list of a government
-# target, a 249 host list from another engagement, and two run outputs into a dozen commits.
+# line, a 249 host list from another engagement, and two run outputs into a dozen
+# commits.
 # Hostnames from a real engagement are the one thing that must never land in a
 # repo, and a file name is not a reliable signal. This checks the content.
 #
