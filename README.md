@@ -22,6 +22,7 @@ jev-recon/
 ├── jev_recon/
 │   ├── cli.py            CLI, orquestração, saída no terminal
 │   ├── config.py         .env, API key, base URL, modelo
+│   ├── cache.py          cache de respostas por hash da request (re-rankear de graça)
 │   ├── preprocess.py     filtros locais baratos, fatos extraídos por código, agrupamento
 │   ├── signals.py        as perguntas (Choice / Score / Noul) e o corpo da request
 │   ├── jev.py            cliente HTTP assíncrono: batching, concorrência, retries
@@ -29,8 +30,9 @@ jev-recon/
 ├── scripts/
 │   ├── gen_sample.py             gera uma lista sintética grande para demo/carga
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                35 testes (unittest, sem dependências extras)
+├── tests/                40 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
+├── conftest.py
 ├── requirements.txt      httpx
 ├── pyproject.toml
 └── .env.example
@@ -166,6 +168,21 @@ RUN
 
 Extras: `--all-output all.json` (tudo, não só os high-interest),
 `--report report.json` (contagens, preprocess, batching, pesos, uso, erros).
+
+### Cache: re-rankear não se paga duas vezes
+
+```bash
+.venv/bin/jev-recon lista.txt --cache jev-cache.json --output v1.json
+.venv/bin/jev-recon lista.txt --cache jev-cache.json \
+  --weights 'sensitive=0.4,admin=0.3,interesting=0.3' --output v2.json
+```
+
+A chave do cache é o hash do corpo da request (modelo + state + perguntas), então
+um hit só acontece quando o pedido é idêntico. A segunda rodada acima sai com
+`requests 0 sent   cache 3 hits   est. cost $0.0000` em menos de um segundo, e o
+ranking muda só por causa dos pesos. Respostas vindas do cache **não** são
+somadas em `input_tokens`, porque já foram cobradas quando entraram. Apague o
+arquivo para forçar respostas novas.
 
 ## 1. Pré-processamento local (antes de gastar API)
 
@@ -319,6 +336,35 @@ priority = (
 * Ordenação: prioridade, depois `relative_pick` do lote, depois nome.
 * `--threshold` decide o que vira "high-interest" (default 0.70).
 
+### O que os pesos default fazem com dados reais
+
+Medido numa amostra real: `likely_production` volta **baixo** (0.24 a 0.48) para
+infra interna, porque a pergunta é literal sobre servir usuários ou clientes
+reais, e um bastion ou um Postgres interno não serve cliente nenhum. Com os
+pesos default, isso segura o topo da lista em ~0.63 e empurra justamente esses
+assets para baixo:
+
+```
+0.63  us-east-1.argocd.globex.com.br     prod 0.39  sens 0.80  admin 0.89
+0.62  eu-west-1.auth.globex.com.br       prod 0.38  sens 0.84  admin 0.81
+0.60  eu-west-1.bastion.tyrell-corp.com  prod 0.27  sens 0.91  admin 0.86
+```
+
+Se o seu alvo é painel interno, e não superfície pública, tire peso de
+`production` e ponha em `sensitive`/`admin`:
+
+```
+--weights 'sensitive=0.35,admin=0.30,api=0.10,interesting=0.25'
+
+0.79  eu-west-1.bastion.tyrell-corp.com  prod 0.26  sens 0.91  admin 0.88
+0.75  ap-south-1.db.tyrell-corp.com      prod 0.24  sens 0.88  admin 0.81
+0.74  us-east-1.argocd.globex.com.br     prod 0.46  sens 0.81  admin 0.88
+0.73  us-east-1.rdp.acme-corp.net        prod 0.40  sens 0.85  admin 0.81
+```
+
+Com `--cache` a segunda rodada custa zero e sai em menos de um segundo, então
+calibrar peso é barato: roda uma vez, re-pesa quantas vezes quiser.
+
 ## 5. Erros e rate limits
 
 Sem depender de SDK: o cliente HTTP implementa o que a doc recomenda
@@ -362,7 +408,7 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 ## 7. Testes e demo sem API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests     # 36 testes, sem dependências extras
+.venv/bin/python -m unittest discover -s tests     # 40 testes, sem dependências extras
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
 

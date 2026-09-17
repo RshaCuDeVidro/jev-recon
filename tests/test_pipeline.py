@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import tempfile
 import threading
 import unittest
 
 from mock_typesafe_server import serve  # noqa: E402  (path set up in conftest.py)
 
+from jev_recon.cache import ResponseCache  # noqa: E402
 from jev_recon.cli import main  # noqa: E402
 from jev_recon.jev import JevAuthError, JevClient  # noqa: E402
 from jev_recon.preprocess import prepare  # noqa: E402
@@ -158,8 +160,6 @@ class TestRetries(unittest.TestCase):
 
 class TestCli(unittest.TestCase):
     def setUp(self):
-        import tempfile
-
         self.tmp = tempfile.TemporaryDirectory()
         self.input = os.path.join(self.tmp.name, "subdomains.txt")
         with open(self.input, "w") as fh:
@@ -269,6 +269,74 @@ class TestCli(unittest.TestCase):
             os.environ.clear()
             os.environ.update(env)
         self.assertEqual(code, 2)
+
+    def test_cache_flag_makes_the_rerun_free(self):
+        """Second run, new weights, zero network: the cache carries it."""
+        cache = os.path.join(self.tmp.name, "cache.json")
+        first = os.path.join(self.tmp.name, "first.json")
+        later = os.path.join(self.tmp.name, "later.json")
+        common = [
+            self.input, "--api-key", API_KEY, "--cache", cache, "--batch-size", "6",
+            "--threshold", "0.0", "--top", "0", "--quiet",
+            "--env-file", os.path.join(self.tmp.name, "nope.env"),
+        ]
+        with MockServer() as server:
+            self.assertEqual(
+                main([*common, "--base-url", server.base_url, "--output", first]), 0
+            )
+        # dead endpoint: now only a cache hit can produce a clean run
+        self.assertEqual(
+            main([*common, "--base-url", "http://127.0.0.1:9", "--max-retries", "1",
+                  "--output", later]),
+            0,
+        )
+        self.assertTrue(os.path.exists(cache))
+        self.assertEqual(json.loads(open(first).read()), json.loads(open(later).read()))
+
+
+class TestCache(unittest.TestCase):
+    def test_second_run_with_the_same_requests_costs_nothing(self):
+        candidates = prepare(HOSTS).candidates
+        path = os.path.join(tempfile.mkdtemp(), "cache.json")
+        with MockServer() as server:
+            cache = ResponseCache(path)
+            client = client_for(server, cache=cache)
+            first = run(client.analyze(candidates, batch_size=6, concurrency=3))
+            cache.save()
+            self.assertEqual(client.stats.requests_sent, 2)
+            self.assertEqual(client.stats.cache_writes, 2)
+            self.assertEqual(client.stats.cache_hits, 0)
+
+            # same requests, new client, cache loaded from disk: zero HTTP calls
+            replay = client_for(server, cache=ResponseCache(path))
+            second = run(replay.analyze(candidates, batch_size=6, concurrency=3))
+            self.assertEqual(replay.stats.requests_sent, 0)
+            self.assertEqual(replay.stats.cache_hits, 2)
+            self.assertEqual(replay.stats.input_tokens, 0)
+
+        self.assertEqual(
+            [o.signals for o in first], [o.signals for o in second]
+        )
+        self.assertEqual(
+            [o.hostnames for o in first], [o.hostnames for o in second]
+        )
+
+    def test_a_different_signal_set_misses_the_cache(self):
+        candidates = prepare(HOSTS).candidates
+        with MockServer() as server:
+            cache = ResponseCache(os.path.join(tempfile.mkdtemp(), "c.json"))
+            run(client_for(server, cache=cache).analyze(candidates, batch_size=6))
+            other = client_for(server, cache=cache, signals=("likely_admin",))
+            run(other.analyze(candidates, batch_size=6))
+            self.assertEqual(other.stats.cache_hits, 0)
+            self.assertEqual(other.stats.cache_writes, 2)
+
+    def test_cache_survives_a_corrupt_file(self):
+        path = os.path.join(tempfile.mkdtemp(), "broken.json")
+        with open(path, "w") as fh:
+            fh.write("{not json")
+        cache = ResponseCache(path)
+        self.assertEqual(cache.data, {})
 
 
 if __name__ == "__main__":

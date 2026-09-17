@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import __version__, config
+from .cache import ResponseCache
 from .jev import JevAuthError, JevClient, JevError
 from .preprocess import ParserOptions, load_metadata, prepare
 from .rank import (
@@ -215,6 +216,9 @@ def print_footer(stats: dict, summary_dict: dict, signals: tuple[str, ...]) -> N
           f"   unscored {summary_dict['unscored']}")
     print(f"  requests       {stats['requests_sent']} sent"
           f"   retries {stats['retries']}   rate-limit pauses {stats['rate_limit_pauses']}")
+    if stats["cache_hits"] or stats["cache_writes"]:
+        print(f"  cache          {stats['cache_hits']} hits"
+              f"   {stats['cache_writes']} stored")
     print(f"  tokens         in {stats['input_tokens']:,}  out {stats['output_tokens']:,}"
           f"   est. cost ${stats['estimated_cost_usd']:.4f}"
           f"   ({', '.join(stats['models_seen']) or 'no response yet'})")
@@ -268,6 +272,7 @@ async def run(args: argparse.Namespace) -> int:
     weights = parse_weights(args.weights)
     signals = resolve_signals(args.signals)
     reporter = Reporter(quiet=args.quiet)
+    cache = ResponseCache(args.cache) if args.cache else None
 
     client = JevClient(
         api_key=args.api_key or "",
@@ -278,6 +283,7 @@ async def run(args: argparse.Namespace) -> int:
         max_questions_per_request=args.max_questions_per_request,
         max_request_tokens=args.max_request_tokens,
         signals=signals,
+        cache=cache,
         on_event=reporter.event,
     )
     batch_size = client.effective_batch_size(args.batch_size, [c.hostname for c in candidates[: args.batch_size]])
@@ -329,6 +335,8 @@ async def run(args: argparse.Namespace) -> int:
         return 2
     finally:
         reporter.finish()
+        if cache is not None:
+            cache.save()
 
     assets = build_assets(outcomes, {c.hostname: c for c in candidates}, weights)
     high_interest = select(assets, args.threshold)
@@ -468,6 +476,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-underscore", action="store_true",
                         help="keep labels with underscores")
     parser.add_argument("--meta", default=None, help="JSON/JSONL metadata keyed by hostname")
+    parser.add_argument("--cache", default=None,
+                        help="JSON file with responses, keyed by request body. "
+                             "Re-ranking with new weights then costs nothing")
     parser.add_argument("--strict", action="store_true", help="abort on the first failed request")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the request plan and exit without calling the API")

@@ -76,6 +76,8 @@ class RunStats:
     adaptive_splits: int = 0
     rate_limit_pauses: int = 0
     paused_seconds: float = 0.0
+    cache_hits: int = 0
+    cache_writes: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     models_seen: set = field(default_factory=set)
@@ -100,6 +102,8 @@ class RunStats:
             "adaptive_splits": self.adaptive_splits,
             "rate_limit_pauses": self.rate_limit_pauses,
             "paused_seconds": round(self.paused_seconds, 2),
+            "cache_hits": self.cache_hits,
+            "cache_writes": self.cache_writes,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "models_seen": sorted(self.models_seen),
@@ -168,6 +172,7 @@ class JevClient:
         max_questions_per_request: int = 220,
         max_request_tokens: int = 24_000,
         signals: tuple[str, ...] = DEFAULT_SIGNAL_ORDER,
+        cache=None,
         on_event=None,
     ):
         self.api_key = api_key
@@ -182,6 +187,7 @@ class JevClient:
         self.max_questions_per_request = max_questions_per_request
         self.max_request_tokens = max_request_tokens
         self.signals = signals
+        self.cache = cache
         self.on_event = on_event or (lambda *_a, **_k: None)
         self.stats = RunStats()
         #: epoch at which all workers are allowed to talk to the API again
@@ -238,13 +244,26 @@ class JevClient:
 
     async def _post(
         self, client: httpx.AsyncClient, payload: dict, batch_id: int
-    ) -> dict:
-        """POST one request, retrying per the documented backoff guidance."""
+    ) -> tuple[dict, bool]:
+        """POST one request, retrying per the documented backoff guidance.
+
+        Returns ``(response, served_from_cache)``. A cached response is not
+        billed, so the caller must not count its tokens.
+        """
         body = json.dumps(payload)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        cache_key = None
+        if self.cache is not None:
+            cache_key = self.cache.key(body)
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                self.stats.cache_hits += 1
+                self.stats.requests_ok += 1
+                self.on_event("cache", f"batch {batch_id}: served from cache")
+                return cached, True
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries + 1):
@@ -265,8 +284,21 @@ class JevClient:
 
             status = response.status_code
             if status == 200:
+                try:
+                    parsed = response.json()
+                except ValueError as exc:
+                    last_error = JevUnavailable(f"200 with a non-JSON body: {exc}")
+                    if attempt >= self.max_retries:
+                        break
+                    delay = self._backoff(attempt, None)
+                    self._note_retry("bad-body", attempt, delay, batch_id)
+                    await asyncio.sleep(delay)
+                    continue
                 self.stats.requests_ok += 1
-                return response.json()
+                if cache_key is not None:
+                    self.cache.put(cache_key, parsed)
+                    self.stats.cache_writes += 1
+                return parsed, False
 
             if status == 401:
                 raise JevAuthError(
@@ -326,7 +358,9 @@ class JevClient:
 
     # -- response parsing -------------------------------------------------
 
-    def parse_batch(self, payload: dict, response: dict, batch_id: int) -> BatchOutcome:
+    def parse_batch(
+        self, payload: dict, response: dict, batch_id: int, from_cache: bool = False
+    ) -> BatchOutcome:
         hostnames = [c["hostname"] for c in payload["state"]["candidates"]]
         outcome = BatchOutcome(batch_id=batch_id, hostnames=hostnames)
         answers = response.get("answers") or {}
@@ -337,7 +371,9 @@ class JevClient:
         model = response.get("model")
         if model:
             self.stats.models_seen.add(str(model))
-        usage = response.get("usage") or {}
+        # A response served from the cache was already billed by the run that
+        # stored it, so it must not be counted again here.
+        usage = {} if from_cache else (response.get("usage") or {})
         self.stats.input_tokens += int(usage.get("input_tokens") or 0)
         self.stats.output_tokens += int(usage.get("output_tokens") or 0)
 
@@ -427,7 +463,7 @@ class JevClient:
     ) -> BatchOutcome:
         payload = build_request(batch, self.model, self.signals)
         try:
-            response = await self._post(client, payload, batch_id)
+            response, from_cache = await self._post(client, payload, batch_id)
         except JevRequestError as exc:
             # 422 means the request did not validate. Most common cause in
             # practice: too many questions in one request. Split and retry once
@@ -485,7 +521,7 @@ class JevClient:
             self.on_event("error", f"batch {batch_id}: {exc}")
             return outcome
 
-        outcome = self.parse_batch(payload, response, batch_id)
+        outcome = self.parse_batch(payload, response, batch_id, from_cache)
         if not outcome.ok:
             self.stats.batches_failed += 1
             if strict:
