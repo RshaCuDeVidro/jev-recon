@@ -235,6 +235,31 @@ class TestCli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertFalse(os.path.exists(out))
 
+    def test_dead_endpoint_exits_1_and_keeps_every_asset_traceable(self):
+        """A fully failed run must not look like a clean run, and must not lose assets."""
+        import contextlib
+        import io
+
+        out = os.path.join(self.tmp.name, "interesting.json")
+        everything = os.path.join(self.tmp.name, "all.json")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = main([
+                self.input, "--output", out, "--all-output", everything,
+                "--base-url", "http://127.0.0.1:9", "--api-key", API_KEY,
+                "--max-retries", "1", "--batch-size", "5", "--quiet",
+                "--env-file", os.path.join(self.tmp.name, "nope.env"),
+            ])
+        self.assertEqual(code, 1)
+        self.assertIn("requests failed", stderr.getvalue())
+        self.assertEqual(json.loads(open(out).read()), [])       # nothing high-interest
+        kept = json.loads(open(everything).read())
+        self.assertTrue(kept)
+        for record in kept:
+            self.assertIsNone(record["priority"])
+            self.assertTrue(record["incomplete"])
+            self.assertTrue(record["batch"]["batch_error"])
+
     def test_missing_key_is_a_fatal_error(self):
         env = dict(os.environ)
         os.environ.pop("TYPESAFE_API_KEY", None)

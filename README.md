@@ -362,8 +362,15 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 ## 7. Testes e demo sem API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests        # 35 testes
+.venv/bin/python -m unittest discover -s tests     # 36 testes, sem dependências extras
+.venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
+
+Os testes cobrem o pré-processamento, a aritmética do ranking, e ponta a ponta
+contra o mock: uma request por lote, concorrência (12 lotes com latência
+artificial terminam bem antes de serial), 429 com `retry-after`, 503 com retry,
+422 dividindo lote, chave inválida, endpoint morto (exit 1, assets preservados
+como `incomplete`), pesos customizados, `--dry-run` e os arquivos de saída.
 
 `scripts/mock_typesafe_server.py` responde no formato documentado, com injeção de
 falha:
