@@ -12,3 +12,7 @@ interesting.json
 all.json
 report.json
 subdomains.txt
+
+# caches de resposta do jev-recon
+*cache*.json
+demo-cache.json
