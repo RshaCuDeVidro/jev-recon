@@ -67,6 +67,37 @@ jev (names+evidence)  2.3  ->  4.7
    one question can displace another. The composite at P@20% improved, but the
    oscillation is real, and it is why measurement exists.
 
+## A metric that lied, and the decoy class
+
+The benchmark measures promotion into a top slice. When a rule only *demotes*
+something, that metric is blind to it: a host pushed from rank 81 to rank 295 is
+still outside the top 30, before and after. Measured that way, the criteria edit
+that excludes third-party tracking namespaces looked useless (7 of 15 decoys
+promoted before the edit, 7 of 15 after).
+
+Priority tells the truth. Six hosts, names that reproduce the real failure
+(`click.c.email.api.acme.com` ranked 0.60 on a real list, above `sso-auth.acme.com`),
+run twice, once against the criteria before the edit and once after:
+
+```
+host                                      criteria before   criteria after
+api.banco-ficticio.com.br                            0.61             0.62
+api.ficticia-industria.com                           0.56             0.56
+api.grupo-fantasia.com.br                            0.56             0.56
+click.c.email.api.ficticia-industria.com             0.49             0.15
+click.c.email.api.banco-ficticio.com.br              0.46             0.12
+track.c.email.api.grupo-fantasia.com.br              0.44             0.11
+```
+
+The genuine API hosts do not move. The decoys lose two thirds of their score.
+So for this class the criteria text does the work, and the deterministic
+`tracking_namespace` penalty (`--tracking-penalty`, default 0.5) is insurance: it
+halves something the model already demotes, which changes nothing at any sane
+threshold, and it catches the case where a model version scores such a name high.
+
+Lesson worth keeping: a promotion metric cannot evaluate a demotion rule. The
+decoys also have to sit near the cut, or the slice never sees them move.
+
 ## What this benchmark does NOT prove
 
 * The label comes from HTTP evidence, so `evidence keywords` and both Jev lines

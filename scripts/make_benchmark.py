@@ -70,11 +70,25 @@ BORING_TECH = [["Vercel"], ["Cloudflare"], ["nginx"], ["Amazon S3"], ["Netlify"]
 #: A method that matches labels promotes them; the evidence says otherwise (a
 #: redirect, nothing behind it). These are counted as boring, so every one that
 #: lands in the top slice costs the method precision.
+#:
+#: The failure this reproduces, from a real run: `click.c.email.api.acme.com` ranked
+#: 0.60 on names alone, above `sso-auth.acme.com`. So the decoys that matter carry
+#: BOTH a tracking vocabulary and a privileged label. A decoy with only the
+#: tracking side (`email.api.acme.com`) lands in the ambiguous list, below, and is
+#: deliberately out of scope for the rule in code.
 DECOY_NAMES = [
-    "click.c.email.{p}", "click.email.{p}", "c.email.{p}", "track.links.mail.{p}",
-    "email.api.{p}", "click.api.{p}", "links.email.{p}", "track.c.email.{p}",
-    "email.admin.{p}", "click.sso.{p}", "url.c.email.{p}", "track.api.{p}",
-    "email.console.{p}", "links.api.{p}", "click.admin.{p}",
+    "click.c.email.api.{p}", "track.c.email.api.{p}", "url.c.email.api.{p}",
+    "click.links.mail.api.{p}", "track.email.admin.{p}", "c.email.sso.{p}",
+    "click.c.email.{p}", "track.links.mail.{p}", "url.c.email.{p}",
+    "track.c.email.{p}", "click.email.{p}", "c.email.{p}",
+]
+#: one vocabulary only: a real mail API or a bare click host is genuinely
+#: ambiguous, so a rule that flags these would be wrong more often than right.
+#: They ship in the set as boring hosts, as a control on the rule misfiring.
+AMBIGUOUS_NAMES = [
+    "email.api.{p}", "click.api.{p}", "links.email.{p}", "email.admin.{p}",
+    "click.sso.{p}", "track.api.{p}", "email.console.{p}", "links.api.{p}",
+    "click.admin.{p}", "email.{p}", "mail.{p}", "smtp.{p}",
 ]
 DECOY_TITLES = ["Redirecting...", "Object Moved", "Just a moment...",
                 "Welcome to nginx!", "404 Not Found"]
@@ -95,12 +109,19 @@ def build(n_hosts: int, n_gold: int, seed: int) -> tuple[list[dict], dict]:
     names: list[str] = []
     used: set[str] = set()
     decoy_set: set[str] = set()
+    forced_boring: set[str] = set()
     for template in DECOY_NAMES[:n_decoys]:           # decoys first, then the pool
         host = template.format(p=rng.choice(parents))
         if host not in used:
             used.add(host)
             names.append(host)
             decoy_set.add(host)
+    for template in AMBIGUOUS_NAMES:                  # control: must stay boring
+        host = template.format(p=rng.choice(parents))
+        if host not in used:
+            used.add(host)
+            names.append(host)
+            forced_boring.add(host)
     while len(names) < n_hosts:
         host = rng.choice(NAME_POOL).format(n=rng.randint(1, 99))
         host = f"{host}.{rng.choice(PARENTS)}"
@@ -109,7 +130,7 @@ def build(n_hosts: int, n_gold: int, seed: int) -> tuple[list[dict], dict]:
         used.add(host)
         names.append(host)
 
-    rest = [h for h in names if h not in decoy_set]
+    rest = [h for h in names if h not in decoy_set and h not in forced_boring]
     gold_flags = [True] * n_gold + [False] * (len(rest) - n_gold)
     rng.shuffle(gold_flags)
     rng.shuffle(names)                                 # decoys mixed back in
@@ -120,6 +141,11 @@ def build(n_hosts: int, n_gold: int, seed: int) -> tuple[list[dict], dict]:
     for host in names:
         if host in decoy_set:
             labels[host] = "decoy"
+            page = rng.choice(DECOY_TITLES)
+            tech = rng.choice(DECOY_TECH)
+            status = rng.choice([301, 302, 404])
+        elif host in forced_boring:
+            labels[host] = "boring"
             page = rng.choice(DECOY_TITLES)
             tech = rng.choice(DECOY_TECH)
             status = rng.choice([301, 302, 404])

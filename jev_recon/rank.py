@@ -185,11 +185,20 @@ def explain(asset: dict) -> list[str]:
 
 
 #: Facts that mean "this is not the target's own surface". Each one multiplies
-#: the priority by the penalty, in code, because a prompt is not where a
-#: mechanical rule belongs: measured against 15 label-rich tracking decoys, the
-#: criteria text alone changed nothing (7/15 promoted before, 7/15 after), while
-#: the evidence cleared them to 0/15. A name is not evidence, so the name-level
-#: rule is applied deterministically instead of asked for.
+#: the priority by the penalty, in code, because a mechanical rule belongs in
+#: code and not in a prompt.
+#:
+#: What the measurement actually says, after getting it wrong once: on a 300 host
+#: set, top-30 membership made the criteria text look useless (7 of 15 decoys
+#: promoted before and after the edit), because the affected hosts were already
+#: far below the cut, so the metric could not see a demotion. Priority tells the
+#: truth. On six hosts whose names reproduce the real case (a tracking namespace
+#: plus an api label), the criteria took the decoys from 0.46, 0.46 and 0.44 down
+#: to 0.12, 0.12 and 0.11 while the genuine api hosts stayed at 0.62, 0.56 and
+#: 0.56. So the prompt does the work for this class, and this penalty is
+#: insurance: it halves what the model already demotes (0.12 to 0.06, no effect
+#: at any sane threshold) and it catches the case where some future model scores
+#: such a name high, which is exactly what happened on the real list.
 PENALTY_FACTS = ("tracking_namespace",)
 
 
