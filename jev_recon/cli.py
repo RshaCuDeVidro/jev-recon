@@ -26,6 +26,7 @@ from .preprocess import (
 )
 from .rank import (
     build_assets,
+    diversify,
     parse_weights,
     select,
     summary,
@@ -148,6 +149,7 @@ def print_funnel(
     dry_run: bool,
     elapsed: float,
     threshold: float = 0.0,
+    suppressed: int = 0,
 ) -> None:
     print(f"{total_lines} subdomains")
     print("        ↓")
@@ -159,7 +161,9 @@ def print_funnel(
     mode = "dry run, nothing sent" if dry_run else f"batch {batch_size} · concurrency {concurrency}"
     print(f"Jev analysis  ({batches} requests · {mode} · {elapsed:.1f}s)")
     print("        ↓")
-    print(f"{high_interest} high-interest assets  (priority >= {threshold:.2f})")
+    line = f"{high_interest} high-interest assets  (priority >= {threshold:.2f}"
+    line += f" · {suppressed} copies of a service already listed)" if suppressed else ")"
+    print(line)
     print()
 
 
@@ -350,14 +354,18 @@ async def run(args: argparse.Namespace) -> int:
             cache.save()
 
     assets = build_assets(outcomes, {c.hostname: c for c in candidates}, weights)
-    high_interest = select(assets, args.threshold)
+    above = select(assets, args.threshold)
+    high_interest, suppressed = diversify(above, args.max_per_shape)
     stats = client.stats.as_dict()
     summary_dict = summary(assets, args.threshold)
+    summary_dict["above_threshold"] = len(above)
+    summary_dict["suppressed_by_shape"] = suppressed
 
     elapsed = time.monotonic() - started
     print_funnel(
         len(lines), report, len(candidates), len(batches), batch_size,
         args.concurrency, len(high_interest), False, elapsed, args.threshold,
+        suppressed,
     )
     print_top(high_interest[: args.top] if args.top else high_interest)
     print_explain(high_interest if args.explain else [], args.explain)
@@ -422,6 +430,7 @@ def write_outputs(args, assets, high_interest, stats, report, summary_dict,
                     "requests": batches,
                     "concurrency": args.concurrency,
                 },
+                "max_per_shape": args.max_per_shape,
                 "signals": list(SIGNALS),
                 "weights": parse_weights(args.weights),
                 "summary": summary_dict,
@@ -493,6 +502,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=0, help="analyze only the top N candidates")
     parser.add_argument("--max-per-parent", type=int, default=0,
                         help="cap candidates per registered parent domain (0 = off)")
+    parser.add_argument("--max-per-shape", type=int, default=2,
+                        help="keep at most N copies of the same service in the output "
+                             "(us-central-3.api and eu-west-1.api are the same service); "
+                             "0 disables")
     parser.add_argument("--drop-throwaway", action="store_true",
                         help="drop dev/test/qa names instead of only annotating them")
     parser.add_argument("--allow-ip", action="store_true", help="keep IP literals")

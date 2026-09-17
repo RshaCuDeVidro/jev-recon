@@ -10,12 +10,14 @@ from jev_recon.rank import (
     DEFAULT_WEIGHTS,
     build_assets,
     compute_priority,
+    diversify,
     parse_weights,
     score_namespace,
     select,
     sort_assets,
     summary,
 )
+from jev_recon.preprocess import name_shape  # noqa: E402
 
 
 class FakeCandidate:
@@ -23,6 +25,7 @@ class FakeCandidate:
         self.hostname = hostname
         self.pre = {"env_token": None}
         self.meta = {}
+        self.shape = name_shape(hostname, tuple(hostname.split(".")))
 
 
 class FakeOutcome:
@@ -199,6 +202,63 @@ class TestAssets(unittest.TestCase):
         ]
         order = [a["hostname"] for a in sort_assets(assets)]
         self.assertEqual(order, ["a.example.com", "b.example.com", "z.example.com"])
+
+
+class TestShapeDiversity(unittest.TestCase):
+    """One service with 13 regional names must not eat 13 output slots."""
+
+    def test_regions_versions_counters_and_hashes_collapse(self):
+        cases = {
+            "us-central-3.api.acme.com": "api.acme.com",
+            "us-central-4.api.acme.com": "api.acme.com",
+            "eu-west-1.api.acme.com": "api.acme.com",
+            "api.acme.com": "api.acme.com",
+            "api.widget-v2.acme.com": "api.widget.acme.com",
+            "widget-3p5-0621.us-east-1.api.acme.com": "api.widget.acme.com",
+            "17db54672c72a9ba.cdn.example.com": "cdn.example.com",
+            "web01.example.com": "web01.example.com",
+            "db01.example.com": "db01.example.com",
+        }
+        for host, expected in cases.items():
+            self.assertEqual(name_shape(host, tuple(host.split("."))), expected, msg=host)
+
+    def test_environment_tokens_are_not_collapsed(self):
+        """dev-api and api are different surfaces, not copies."""
+        self.assertNotEqual(
+            name_shape("us-central-1.api.acme.com", ("us-central-1", "api", "x", "ai")),
+            name_shape("staging-cm-api.acme.com", ("staging-cm-api", "x", "ai")),
+        )
+
+    def test_diversify_keeps_the_best_and_marks_the_copies(self):
+        assets = [
+            {"hostname": "us-central-3.api.acme.com", "priority": 0.7, "shape": "api.acme.com",
+             "relative_pick": 0.1, "incomplete": False, "signals": {}, "batch": {}},
+            {"hostname": "us-central-4.api.acme.com", "priority": 0.68, "shape": "api.acme.com",
+             "relative_pick": 0.1, "incomplete": False, "signals": {}, "batch": {}},
+            {"hostname": "us-central-5.api.acme.com", "priority": 0.66, "shape": "api.acme.com",
+             "relative_pick": 0.1, "incomplete": False, "signals": {}, "batch": {}},
+            {"hostname": "auth.acme.com", "priority": 0.65, "shape": "auth.acme.com",
+             "relative_pick": 0.1, "incomplete": False, "signals": {}, "batch": {}},
+        ]
+        kept, dropped = diversify(assets, 2)
+        self.assertEqual([a["hostname"] for a in kept],
+                         ["us-central-3.api.acme.com", "us-central-4.api.acme.com", "auth.acme.com"])
+        self.assertEqual(dropped, 1)
+        self.assertEqual(assets[0]["shape_rank"], 1)
+        self.assertEqual(assets[1]["same_shape_count"], 2)
+        self.assertNotIn("suppressed_by_shape", assets[1])
+        self.assertTrue(assets[2]["suppressed_by_shape"])
+
+    def test_zero_disables_diversity_but_still_annotates(self):
+        assets = [
+            {"hostname": f"r{i}.api.acme.com", "priority": 0.7 - i / 100, "shape": "api.acme.com",
+             "relative_pick": 0.0, "incomplete": False, "signals": {}, "batch": {}}
+            for i in range(4)
+        ]
+        kept, dropped = diversify(assets, 0)
+        self.assertEqual(len(kept), 4)
+        self.assertEqual(dropped, 0)
+        self.assertEqual([a["shape_rank"] for a in assets], [1, 2, 3, 4])
 
 
 if __name__ == "__main__":

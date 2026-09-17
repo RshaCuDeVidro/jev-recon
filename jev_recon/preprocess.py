@@ -101,6 +101,13 @@ NOISE_LABELS = frozenset(
     }
 )
 
+#: Tokens that say "same service, another copy": regions, versions, counters, ids.
+REGION_RE = re.compile(
+    r"^(us|eu|ap|sa|ca|me|af)-(central|east|west|south|north|southeast|southwest"
+    r"|northeast|northwest)-?\d*$"
+)
+VERSION_RE = re.compile(r"^(v|ver|rev|r)?\d+([a-z]\d+)?$|^[0-9a-f]{8,}$")
+
 #: Suffixes reserved by RFC 2606 / 6761 and friends.
 RESERVED_SUFFIXES = (
     ".invalid", ".test", ".localhost", ".example", ".localdomain", ".home.arpa",
@@ -178,6 +185,7 @@ class Candidate:
     depth: int
     pre: dict
     meta: dict = field(default_factory=dict)
+    shape: str = ""
     index: int = 0
 
     @property
@@ -316,6 +324,31 @@ def extract_facts(host: str, labels: tuple[str, ...], opts: ParserOptions) -> di
     return facts
 
 
+def name_shape(host: str, labels: tuple[str, ...]) -> str:
+    """The service behind a name, with the per-copy noise removed.
+
+    ``us-central-3.api.acme.com`` and ``eu-west-1.api.acme.com`` are one service in two
+    regions, so both reduce to ``api.acme.com``. Region tokens, versions, counters
+    and hash-like labels are dropped, and the rest is sorted so word order does
+    not split a group. Environment tokens (``dev``, ``staging``) are kept: those
+    are different surfaces, not copies.
+
+    Code does this, not the model: it is a string operation, exact and repeatable.
+    """
+    parent = ".".join(labels[-2:])
+    tokens: list[str] = []
+    for label in labels[:-2]:
+        if REGION_RE.match(label):        # the whole label is a region
+            continue
+        for piece in label.split("-"):    # a piece of a compound label
+            if not piece or REGION_RE.match(piece) or VERSION_RE.match(piece):
+                continue
+            tokens.append(piece)
+    if not tokens:
+        return parent
+    return f"{'.'.join(sorted(tokens))}.{parent}"
+
+
 def pre_rank(pre: dict) -> float:
     """Cheap deterministic ordering key. NEVER the final decision.
 
@@ -393,6 +426,7 @@ def prepare(
                 depth=len(labels),
                 pre=pre,
                 meta=enriched,
+                shape=name_shape(host, labels),
             )
         )
 

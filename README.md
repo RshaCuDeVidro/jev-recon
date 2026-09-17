@@ -26,11 +26,11 @@ jev-recon/
 │   ├── preprocess.py     filtros locais baratos, fatos extraídos por código, agrupamento
 │   ├── signals.py        as perguntas (Choice / Score / Noul) e o corpo da request
 │   ├── jev.py            cliente HTTP assíncrono: batching, concorrência, retries
-│   └── rank.py           pesos, prioridade, ordenação (Python puro)
+│   └── rank.py           pesos, prioridade, agrupamento por serviço, ordenação
 ├── scripts/
 │   ├── gen_sample.py             gera uma lista sintética grande para demo/carga
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                55 testes (unittest, sem dependências extras)
+├── tests/                59 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
 ├── requirements.txt      httpx
 ├── pyproject.toml
@@ -231,6 +231,7 @@ decisão
   --meta-fields a,b      quais campos de metadata ficam
   --meta-all             mantém tudo, inclusive ruído
   --max-per-parent N     limita assets por domínio registrado
+  --max-per-shape N      cópias do mesmo serviço no output (default 2, 0 desliga)
   --drop-throwaway       descarta dev/test/qa (default: mantém e anota)
   --limit N              analisa só os N melhores do pre_rank
 
@@ -317,6 +318,9 @@ RUN
     "relative_pick": 0.215,
     "weights_used": {"production": 0.25, "sensitive": 0.25, "admin": 0.15, "api": 0.15, "interesting": 0.2},
     "missing_signals": [],
+    "shape": "admin.api.example.com",
+    "shape_rank": 1,
+    "same_shape_count": 1,
     "batch": {"id": 45, "research_yield": 2.0, "yield_confidence": 0.82, "batch_error": null},
     "pre": {"name_tokens": ["admin", "api"], "env_token": null, "privileged_labels": ["admin", "api"], "pre_rank": 2.6},
     "metadata": {},
@@ -505,7 +509,44 @@ priority = (
   Peso negativo penaliza staging, coisa que o default não faz (o default ignora
   `internal` e `staging`, exatamente como na fórmula acima).
 * Ordenação: prioridade, depois `relative_pick` do lote, depois nome.
-* `--threshold` decide o que vira "high-interest" (default 0.70).
+* `--threshold` decide o que vira "high-interest" (default 0.55).
+
+### Um serviço repetido por região não come a lista
+
+Enumeração gera cópias: `us-central-1.api.acme.com` até `us-central-8.api.acme.com`,
+`eu-west-1.api.acme.com`, `us-west-1.api.acme.com`. São **um** serviço. Gastar análise
+manual na quarta região depois de ver a primeira não rende nada, então o output
+agrupa por *shape*: o nome com tokens de região, versão, contador e hash
+removidos.
+
+```
+us-central-3.api.acme.com        -> api.acme.com
+eu-west-1.api.acme.com           -> api.acme.com
+api.widget-v2.acme.com             -> api.widget.acme.com
+widget-3p5-0621.us-east-1.api.acme.com -> api.widget.acme.com
+```
+
+Tokens de ambiente ficam: `dev-api` e `api` continuam sendo superfícies
+diferentes, não cópias. `--max-per-shape` (default 2) mantém no output as N
+melhores de cada shape e marca o resto com `suppressed_by_shape`, `shape_rank` e
+`same_shape_count`. `--max-per-shape 0` desliga. Todo asset continua no
+`--all-output`, e o funil informa quantas cópias foram contidas.
+
+Medido nos 195 hosts de um alvo real:
+
+```
+antes:   49 high-interest, com 12 dos 30 primeiros sendo *.api.acme.com (uma por regiao)
+depois:  38 high-interest (11 copias contidas)
+
+top shapes no output: 2 api.widget.acme.com · 2 api.acme.com · 2 api.embedding.fte5.models.acme.com
+suprimidos:           eu-west-1.api · us-west-1.api · us-central-1..8.api  (copia #3 a #11)
+```
+
+O shape é uma heurística de string exata, feita em código, e é conservadora de
+propósito: ela derruba cópias óbvias (região, versão, contador, hash) mas não
+tenta adivinhar equivalência semântica (`sso-auth` e `sso` seguem como shapes
+diferentes). Julgar se dois nomes são o mesmo serviço é decisão semântica, e essa
+fica com o modelo ou com você, não com um regex.
 
 ### O que os pesos default fazem com dados reais
 
@@ -579,7 +620,7 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 ## 7. Testes e demo sem API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests     # 55 testes, sem dependências extras
+.venv/bin/python -m unittest discover -s tests     # 59 testes, sem dependências extras
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
 

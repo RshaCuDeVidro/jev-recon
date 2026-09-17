@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 
+from .preprocess import name_shape
+
 #: Short signal names map onto the question ids used in the request.
 SIGNAL_ALIASES = {
     "production": "likely_production",
@@ -158,6 +160,11 @@ def build_assets(outcomes: list, candidates_by_host: dict, weights: dict) -> lis
                     "relative_pick": round(relative_pick, 3),
                     "weights_used": used_weights,
                     "missing_signals": missing,
+                    "shape": (
+                        candidate.shape
+                        if candidate is not None and candidate.shape
+                        else name_shape(hostname, tuple(hostname.split(".")))
+                    ),
                     "batch": {
                         "id": outcome.batch_id,
                         "research_yield": (
@@ -199,6 +206,28 @@ def select(assets: list[dict], threshold: float) -> list[dict]:
         for asset in assets
         if asset["priority"] is not None and asset["priority"] >= threshold
     ]
+
+
+def diversify(assets: list[dict], max_per_shape: int) -> tuple[list[dict], int]:
+    """Keep the best few of each service, not every regional copy of it.
+
+    ``us-central-1..8.api.acme.com`` is one service: paying manual analysis for the
+    fourth region adds nothing. Assets arrive already sorted, so the first of a
+    shape is its highest-priority member and the rest are marked as copies.
+    Returns ``(kept, dropped)``; every asset is annotated either way.
+    """
+    seen: dict[str, int] = {}
+    kept: list[dict] = []
+    for asset in assets:
+        shape = asset.get("shape") or asset["hostname"]
+        seen[shape] = seen.get(shape, 0) + 1
+        asset["same_shape_count"] = seen[shape]
+        asset["shape_rank"] = seen[shape]
+        if max_per_shape <= 0 or seen[shape] <= max_per_shape:
+            kept.append(asset)
+        else:
+            asset["suppressed_by_shape"] = True
+    return kept, len(assets) - len(kept)
 
 
 def summary(assets: list[dict], threshold: float) -> dict:
