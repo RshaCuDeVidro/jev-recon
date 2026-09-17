@@ -16,13 +16,14 @@ for file in $(git diff --cached --name-only --diff-filter=ACM); do
         examples/*|tests/*) continue ;;
     esac
     content=$(git show ":$file" 2>/dev/null) || continue
+    # Count matches, not lines: a minified JSON puts 25 hostnames on one line.
     case "$file" in
         *.json|*.jsonl)
             # inside JSON a hostname is just a quoted string that has a dot
-            hits=$(printf '%s\n' "$content" | grep -cE '"[A-Za-z0-9._-]+\.[a-z]{2,}"') ;;
+            hits=$(printf '%s' "$content" | grep -oE '"[A-Za-z0-9._-]+\.[a-z]{2,}"' | wc -l) ;;
         *)
             # outside JSON a host list is one bare hostname per line
-            hits=$(printf '%s\n' "$content" | grep -cE '^[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z]{2,}$') ;;
+            hits=$(printf '%s' "$content" | grep -oE '^[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z]{2,}$' | wc -l) ;;
     esac
     if [ "${hits:-0}" -ge "$THRESHOLD" ]; then
         echo "pre-commit: '$file' looks like target data ($hits hostnames)." >&2
