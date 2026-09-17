@@ -10,13 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 import threading
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-
-from mock_typesafe_server import serve  # noqa: E402
+from mock_typesafe_server import serve  # noqa: E402  (path set up in conftest.py)
 
 from jev_recon.cli import main  # noqa: E402
 from jev_recon.jev import JevAuthError, JevClient  # noqa: E402
