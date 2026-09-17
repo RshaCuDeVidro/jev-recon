@@ -1,5 +1,7 @@
 # jev-recon
 
+> Português: [README-pt.md](README-pt.md). Both files carry the same content.
+
 Subdomain triage for security research, using **Jev** (TypeSafe AI) as a
 probabilistic decision layer, and plain Python deciding the ranking.
 
@@ -37,6 +39,7 @@ jev-recon/
 ├── requirements.txt      httpx
 ├── pyproject.toml
 ├── BENCHMARK.md
+├── README-pt.md          mesmo conteudo, em portugues
 └── .env.example
 ```
 
