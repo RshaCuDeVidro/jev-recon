@@ -16,3 +16,7 @@ subdomains.txt
 # caches de resposta do jev-recon
 *cache*.json
 demo-cache.json
+
+# artefatos do benchmark
+bench/
+bench-*/

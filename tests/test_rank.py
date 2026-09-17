@@ -11,6 +11,7 @@ from jev_recon.rank import (
     build_assets,
     compute_priority,
     diversify,
+    explain,
     parse_weights,
     score_namespace,
     select,
@@ -176,6 +177,33 @@ class TestAssets(unittest.TestCase):
         })
         self.assertEqual(top["batch"]["id"], 0)
         self.assertEqual(top["incomplete"], False)
+        self.assertTrue(top["reasons"])
+
+    def test_reasons_are_ordered_by_what_moved_the_score(self):
+        asset = {
+            "signals": {"likely_production": 0.98, "likely_sensitive": 0.96,
+                        "likely_admin": 0.93, "likely_api": 0.97,
+                        "interesting_for_security_research": 0.95},
+            "relative_pick": 0.2, "weights_used": DEFAULT_WEIGHTS,
+            "metadata": {"http_status": 403, "title": "Jenkins",
+                         "technologies": ["Jenkins", "nginx"]},
+            "pre": {"env_token": None, "privileged_labels": ["jenkins"]},
+        }
+        reasons = explain(asset)
+        # production and sensitive carry 0.25 each, so they lead; api at 0.15
+        self.assertTrue(reasons[0].startswith("production 0.98"))
+        self.assertIn("sensitive 0.96", reasons[1])
+        self.assertTrue(any(r.startswith("evidence: gated, HTTP 403") for r in reasons))
+        self.assertTrue(any("Jenkins" in r for r in reasons))
+        self.assertTrue(any(r.startswith("code: known labels jenkins") for r in reasons))
+
+    def test_reasons_stay_quiet_when_nothing_crossed_the_floor(self):
+        asset = {
+            "signals": {"likely_admin": 0.2, "likely_api": 0.1},
+            "relative_pick": 0.0, "weights_used": DEFAULT_WEIGHTS,
+            "metadata": {}, "pre": {},
+        }
+        self.assertEqual(explain(asset), [])
 
     def test_select_and_summary(self):
         assets = self.make()

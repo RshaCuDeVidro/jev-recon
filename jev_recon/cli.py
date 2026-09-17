@@ -195,6 +195,23 @@ def print_explain(assets: list[dict], explain: int) -> None:
     print()
 
 
+def print_reasons(assets: list[dict], count: int) -> None:
+    """The tree: why each asset landed where it did."""
+    if count <= 0:
+        return
+    print(f"WHY (top {count})")
+    print(BAR)
+    for asset in assets[:count]:
+        if asset["priority"] is None:
+            continue
+        print(f"{asset['priority']:.2f}  {asset['hostname']}")
+        reasons = asset.get("reasons") or ["no signal above the floor"]
+        for index, reason in enumerate(reasons):
+            branch = "└─" if index == len(reasons) - 1 else "├─"
+            print(f"      {branch} {reason}")
+    print()
+
+
 def print_footer(stats: dict, summary_dict: dict, signals: tuple[str, ...]) -> None:
     print("RUN")
     print(BAR)
@@ -369,6 +386,7 @@ async def run(args: argparse.Namespace) -> int:
     )
     print_top(high_interest[: args.top] if args.top else high_interest)
     print_explain(high_interest if args.explain else [], args.explain)
+    print_reasons(high_interest, args.reasons)
     print_footer(stats, summary_dict, signals)
     if not high_interest and summary_dict["scored"]:
         best = next(a for a in assets if a["priority"] is not None)
@@ -481,6 +499,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top", type=int, default=25, help="rows printed in TOP ASSETS")
     parser.add_argument("--explain", type=int, default=0,
                         help="print the per-signal table for the first N assets")
+    parser.add_argument("--reasons", type=int, default=0,
+                        help="print the why-tree for the first N assets")
     parser.add_argument("--signals", default=None,
                         help="comma list: production,sensitive,internal,staging,admin,api,interesting")
     parser.add_argument("--weights", default=None,

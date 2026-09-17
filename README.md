@@ -29,8 +29,10 @@ jev-recon/
 │   └── rank.py           pesos, prioridade, agrupamento por serviço, ordenação
 ├── scripts/
 │   ├── gen_sample.py             gera uma lista sintética grande para demo/carga
+│   ├── make_benchmark.py         conjuntos rotulados para o benchmark
+│   ├── benchmark.py              Jev x heurística x aleatório (ver BENCHMARK.md)
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                59 testes (unittest, sem dependências extras)
+├── tests/                61 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
 ├── requirements.txt      httpx
 ├── pyproject.toml
@@ -225,7 +227,8 @@ entrada/saída
   --top N / --explain N  linhas no TOP ASSETS / tabela de sinais
 
 decisão
-  --signals a,b,c        subconjunto dos 7 sinais (custo cai na proporção)
+  --signals a,b,c        subconjunto dos sinais; devops existe, fora do default
+  --reasons N            árvore de motivos por asset (por que rankeou onde rankeou)
   --weights ...          pesos, JSON ou k=v, aceita peso negativo
   --meta F               enriquecimento por host (httpx -json direto)
   --meta-fields a,b      quais campos de metadata ficam
@@ -620,7 +623,7 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 ## 7. Testes e demo sem API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests     # 59 testes, sem dependências extras
+.venv/bin/python -m unittest discover -s tests     # 61 testes, sem dependências extras
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
 

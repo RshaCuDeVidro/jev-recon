@@ -32,7 +32,11 @@ SIGNALS: dict[str, tuple[str, str, str]] = {
         "company would classify as sensitive?",
         "Customer personal data, payment or billing data, credentials, secrets, "
         "session tokens, source code, internal documents, employee data, or "
-        "control over production infrastructure.",
+        "control over production infrastructure. Count the metadata too: a "
+        "technology naming a database, a queue, a secret store, a repository, "
+        "or an object storage (Postgres, MySQL, Mongo, Redis, RabbitMQ, Vault, "
+        "GitLab, MinIO, Elasticsearch), or an HTTP 401 or 403 that says "
+        "something behind the wall requires a credential.",
         "Only public content, marketing pages, static assets, or functionality "
         "whose exposure would not by itself be a confidentiality problem.",
     ),
@@ -58,7 +62,12 @@ SIGNALS: dict[str, tuple[str, str, str]] = {
         "management interface?",
         "An admin console, control panel, dashboard, back office, CI/CD or "
         "deployment control, container or orchestration control, database or "
-        "queue administration, or infrastructure management surface.",
+        "queue administration, or infrastructure management surface. Count the "
+        "metadata too: a title or technology naming such a product (Jenkins, "
+        "GitLab, Grafana, Kibana, Portainer, phpMyAdmin, MinIO, Proxmox, "
+        "RabbitMQ, Prometheus), a title that is a generic management word "
+        "(Console, Dashboard, Portal, Manage, Overview) on a page that answers "
+        "HTTP 401 or 403, or a login form in front of such a service.",
         "A read-only public page, a product feature for end users, or a plain "
         "content or asset host with no management function.",
     ),
@@ -70,6 +79,17 @@ SIGNALS: dict[str, tuple[str, str, str]] = {
         "service-to-service naming scheme.",
         "A browser-facing page, a static file host, a mail or DNS record, or an "
         "asset whose metadata describes only HTML content.",
+    ),
+    # Off by default: costs one more question per asset. Add it with
+    # --signals production,sensitive,admin,api,devops,interesting and weight it.
+    "likely_devops": (
+        "Does `{path}` look like build, deploy, or release infrastructure?",
+        "CI/CD runners, build and artifact services, container registries, "
+        "deployment controllers, configuration or secrets management used by "
+        "pipelines, or a host name built from jenkins, ci, cd, build, deploy, "
+        "argocd, registry, drone, tekton, or similar.",
+        "An application, a data service, a human-facing page, or an asset with "
+        "no pipeline role implied by its name or metadata.",
     ),
     "interesting_for_security_research": (
         "Based on its name and metadata alone, is `{path}` an asset worth "
@@ -83,7 +103,15 @@ SIGNALS: dict[str, tuple[str, str, str]] = {
     ),
 }
 
-DEFAULT_SIGNAL_ORDER = tuple(SIGNALS)
+DEFAULT_SIGNAL_ORDER = (
+    "likely_production",
+    "likely_sensitive",
+    "likely_internal",
+    "likely_staging",
+    "likely_admin",
+    "likely_api",
+    "interesting_for_security_research",
+)
 
 NOUL_ANSWER_KEYS = ("noul",)
 

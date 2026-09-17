@@ -199,7 +199,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(set(payload[0]), {
             "hostname", "priority", "signals", "relative_pick", "weights_used",
             "missing_signals", "shape", "batch", "pre", "metadata", "incomplete",
-            "same_shape_count", "shape_rank",
+            "same_shape_count", "shape_rank", "reasons",
         })
         priorities = [row["priority"] for row in payload]
         self.assertEqual(priorities, sorted(priorities, reverse=True))
