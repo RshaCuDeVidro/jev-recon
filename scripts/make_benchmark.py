@@ -72,21 +72,24 @@ BORING_TECH = [["Vercel"], ["Cloudflare"], ["nginx"], ["Amazon S3"], ["Netlify"]
 #: lands in the top slice costs the method precision.
 #:
 #: The failure this reproduces, from a real run: `click.c.email.api.acme.com` ranked
-#: 0.60 on names alone, above `sso-auth.acme.com`. So the decoys that matter carry
-#: BOTH a tracking vocabulary and a privileged label. A decoy with only the
-#: tracking side (`email.api.acme.com`) lands in the ambiguous list, below, and is
-#: deliberately out of scope for the rule in code.
+#: 0.60 on names alone, above `sso-auth.acme.com`. So a decoy has to carry BOTH a
+#: tracking vocabulary and a privileged label: with the tracking side alone
+#: (`click.c.email.acme.com`) the model rejects it on its own, measured at 0.13 to
+#: 0.21, which is not where the risk is. Every decoy below carries both, and
+#: `scripts/check_benchmark_invariants.py` asserts that.
 DECOY_NAMES = [
     "click.c.email.api.{p}", "track.c.email.api.{p}", "url.c.email.api.{p}",
     "click.links.mail.api.{p}", "track.email.admin.{p}", "c.email.sso.{p}",
-    "click.c.email.{p}", "track.links.mail.{p}", "url.c.email.{p}",
-    "track.c.email.{p}", "click.email.{p}", "c.email.{p}",
+    "click.c.email.console.{p}", "track.links.mail.admin.{p}", "url.c.email.sso.{p}",
+    "click.email.api.{p}", "c.email.admin.{p}", "track.email.console.{p}",
 ]
 #: one vocabulary only: a real mail API or a bare click host is genuinely
 #: ambiguous, so a rule that flags these would be wrong more often than right.
 #: They ship in the set as boring hosts, as a control on the rule misfiring.
+#: `links.email` is not here on purpose: it does carry both vocabularies, so the
+#: rule flags it, correctly. A name is only a control when it is truly one-sided.
 AMBIGUOUS_NAMES = [
-    "email.api.{p}", "click.api.{p}", "links.email.{p}", "email.admin.{p}",
+    "email.api.{p}", "click.api.{p}", "email.admin.{p}",
     "click.sso.{p}", "track.api.{p}", "email.console.{p}", "links.api.{p}",
     "click.admin.{p}", "email.{p}", "mail.{p}", "smtp.{p}",
 ]
