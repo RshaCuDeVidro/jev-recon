@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unittest
 
+import _bootstrap  # noqa: F401  (repo root and scripts/ on sys.path)
+
 from jev_recon.rank import (
     DEFAULT_WEIGHTS,
     build_assets,

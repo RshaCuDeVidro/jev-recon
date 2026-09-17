@@ -7,6 +7,8 @@ import os
 import tempfile
 import unittest
 
+import _bootstrap  # noqa: F401  (repo root and scripts/ on sys.path)
+
 from jev_recon.preprocess import (
     NOISE_LABELS,
     ParserOptions,

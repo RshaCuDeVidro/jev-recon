@@ -14,7 +14,9 @@ import tempfile
 import threading
 import unittest
 
-from mock_typesafe_server import serve  # noqa: E402  (path set up in conftest.py)
+import _bootstrap  # noqa: F401  (repo root and scripts/ on sys.path)
+
+from mock_typesafe_server import serve  # noqa: E402
 
 from jev_recon.cache import ResponseCache  # noqa: E402
 from jev_recon.cli import main  # noqa: E402

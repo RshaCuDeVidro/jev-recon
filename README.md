@@ -32,7 +32,6 @@ jev-recon/
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
 ├── tests/                40 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
-├── conftest.py
 ├── requirements.txt      httpx
 ├── pyproject.toml
 └── .env.example
@@ -411,6 +410,10 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 .venv/bin/python -m unittest discover -s tests     # 40 testes, sem dependências extras
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
+
+A suíte roda igual sob pytest e unittest, de qualquer diretório e sem instalar o
+pacote (`tests/_bootstrap.py` põe a raiz e `scripts/` no `sys.path`; o unittest
+não lê `conftest.py` e o pytest puro não adiciona o cwd).
 
 Os testes cobrem o pré-processamento, a aritmética do ranking, e ponta a ponta
 contra o mock: uma request por lote, concorrência (12 lotes com latência
