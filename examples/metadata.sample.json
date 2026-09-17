@@ -1,0 +1,33 @@
+{
+  "admin.corp.example.com": {
+    "resolved_ips": [
+      "203.0.113.10"
+    ],
+    "http_status": 200,
+    "title": "Admin Portal",
+    "server": "nginx",
+    "ports": [
+      443,
+      8443
+    ],
+    "technologies": [
+      "nginx",
+      "FastAPI"
+    ]
+  },
+  "dev-api.example.com": {
+    "resolved_ips": [
+      "203.0.113.44"
+    ],
+    "http_status": 403,
+    "title": "403 Forbidden",
+    "server": "gunicorn",
+    "ports": [
+      443
+    ],
+    "technologies": [
+      "Python",
+      "FastAPI"
+    ]
+  }
+}

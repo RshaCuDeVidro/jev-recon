@@ -1,0 +1,64 @@
+$ # API falsa no ar com: --rate-limit-every 40 --retry-after 1 --fail-every 77 \
+$ #                      --reject-over-questions 60
+$ jev-recon subdomains3k.txt --batch-size 20 --concurrency 8 --threshold 0.62 --top 5
+
+2990 subdomains
+        ↓
+1983 candidates  (964 removed: duplicate 626, invalid_syntax 39, ip_literal 23, not_a_hostname 85, placeholder_label 143, reserved_suffix 38, wildcard 10)
+        ↓
+Jev analysis  (100 requests · batch 20 · concurrency 8 · 21.0s)
+        ↓
+20 high-interest assets
+
+TOP ASSETS
+────────────────────────────────────
+0.68  backoffice.elastic.northwind.io
+0.68  console.db.wayne-enterprises.net
+0.68  database.management.example.com
+0.68  console.jenkins.veridian.net
+0.67  kibana.ci.hooli.com
+
+RUN
+────────────────────────────────────
+  signals        likely_production, likely_sensitive, likely_internal, likely_staging, likely_admin, likely_api, interesting_for_security_research
+  scored         1983/1983   incomplete 0   unscored 0
+  requests       721 sent   retries 9   rate-limit pauses 18
+  tokens         in 2,186,148  out 44,025   est. cost $0.0918   (jev-1.13.0)
+EVENT LOG (stderr, primeiras linhas)
+------------------------------------
+split: batch 3: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 4: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 2: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 7: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 5: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 0: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 1: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 6: HTTP 422 on 20 candidates, splitting in half and retrying
+  split: batch 3: HTTP 422 on 10 candidates, splitting in half and retrying
+  split: batch 4: HTTP 422 on 10 candidates, splitting in half and retrying
+  split: batch 2: HTTP 422 on 10 candidates, splitting in half and retrying
+  split: batch 7: HTTP 422 on 10 candidates, splitting in half and retrying
+
+RUN REPORT (usage)
+------------------------------------
+{
+  "requests_sent": 721,
+  "requests_ok": 397,
+  "retries": 9,
+  "retries_by_status": {
+    "429": 18,
+    "503": 9
+  },
+  "batches_planned": 100,
+  "batches_failed": 0,
+  "adaptive_splits": 297,
+  "rate_limit_pauses": 18,
+  "paused_seconds": 115.14,
+  "input_tokens": 2186148,
+  "output_tokens": 44025,
+  "models_seen": [
+    "jev-1.13.0"
+  ],
+  "estimated_cost_usd": 0.091818,
+  "wall_seconds": 20.88
+}

@@ -1,0 +1,203 @@
+"""Ranking tests: the arithmetic that decides the order must be plain code."""
+
+from __future__ import annotations
+
+import unittest
+
+from jev_recon.rank import (
+    DEFAULT_WEIGHTS,
+    build_assets,
+    compute_priority,
+    parse_weights,
+    score_namespace,
+    select,
+    sort_assets,
+    summary,
+)
+
+
+class FakeCandidate:
+    def __init__(self, hostname):
+        self.hostname = hostname
+        self.pre = {"env_token": None}
+        self.meta = {}
+
+
+class FakeOutcome:
+    def __init__(self, hostnames, signals, relative_pick=None, error=None):
+        self.batch_id = 0
+        self.hostnames = hostnames
+        self.signals = signals
+        self.relative_pick = relative_pick or [0.0] * len(hostnames)
+        self.incomplete = [False] * len(hostnames)
+        self.batch_yield = 1.0
+        self.batch_yield_confidence = 0.8
+        self.error = error
+
+
+class TestWeights(unittest.TestCase):
+    def test_default_is_the_documented_formula(self):
+        self.assertEqual(
+            DEFAULT_WEIGHTS,
+            {"production": 0.25, "sensitive": 0.25, "admin": 0.15,
+             "api": 0.15, "interesting": 0.20},
+        )
+
+    def test_parse_json_and_pairs_and_long_names(self):
+        self.assertEqual(parse_weights('{"production": 1}'), {"production": 1.0})
+        parsed = parse_weights("production=0.5,staging=-0.5")
+        self.assertEqual(parsed, {"production": 0.5, "staging": -0.5})
+        self.assertEqual(parse_weights("likely_admin=1"), {"admin": 1.0})
+        self.assertEqual(
+            parse_weights("interesting_for_security_research=2"),
+            {"interesting": 2.0},
+        )
+
+    def test_unknown_signal_and_empty_are_rejected(self):
+        with self.assertRaises(ValueError):
+            parse_weights("nonsense=1")
+        with self.assertRaises(ValueError):
+            parse_weights("production=0")
+
+
+class TestPriority(unittest.TestCase):
+    def test_matches_hand_computed_formula(self):
+        signals = {
+            "likely_production": 0.98,
+            "likely_sensitive": 0.96,
+            "likely_admin": 0.93,
+            "likely_api": 0.97,
+            "interesting_for_security_research": 0.95,
+        }
+        expected = (
+            0.98 * 0.25 + 0.96 * 0.25 + 0.93 * 0.15 + 0.97 * 0.15 + 0.95 * 0.20
+        )
+        priority, used, missing = compute_priority(
+            score_namespace(signals), DEFAULT_WEIGHTS
+        )
+        self.assertAlmostEqual(priority, round(expected, 3), places=3)
+        self.assertEqual(missing, [])
+        self.assertAlmostEqual(sum(used.values()), 1.0, places=3)
+
+    def test_unweighted_signals_are_ignored(self):
+        base = {"likely_production": 0.5, "likely_sensitive": 0.5,
+                "likely_admin": 0.5, "likely_api": 0.5,
+                "interesting_for_security_research": 0.5}
+        noisy = dict(base, likely_internal=0.99, likely_staging=0.99)
+        self.assertEqual(
+            compute_priority(score_namespace(base), DEFAULT_WEIGHTS)[0],
+            compute_priority(score_namespace(noisy), DEFAULT_WEIGHTS)[0],
+        )
+
+    def test_missing_signals_lower_the_score_and_never_inflate_it(self):
+        """Unmeasured signals must not make an asset look better than it is."""
+        full = {"likely_production": 0.9, "likely_sensitive": 0.9,
+                "likely_admin": 0.9, "likely_api": 0.9,
+                "interesting_for_security_research": 0.9}
+        complete = compute_priority(score_namespace(full), DEFAULT_WEIGHTS)[0]
+        partial = dict(full)
+        partial["interesting_for_security_research"] = None
+        priority, used, missing = compute_priority(
+            score_namespace(partial), DEFAULT_WEIGHTS
+        )
+        self.assertAlmostEqual(complete, 0.9, places=3)
+        # 0.9 * (1 - 0.20), because the 0.20 weight stays in the denominator
+        self.assertAlmostEqual(priority, 0.72, places=3)
+        self.assertLess(priority, complete)
+        self.assertEqual(missing, ["interesting"])
+        self.assertAlmostEqual(sum(used.values()), 0.8, places=3)
+
+    def test_all_missing_is_none_not_zero(self):
+        priority, used, missing = compute_priority(
+            score_namespace({}), DEFAULT_WEIGHTS
+        )
+        self.assertIsNone(priority)
+        self.assertEqual(used, {})
+        self.assertEqual(len(missing), 5)
+
+    def test_negative_weight_penalises_staging(self):
+        weights = parse_weights("production=1,staging=-1")
+        prod = compute_priority(
+            score_namespace({"likely_production": 1.0, "likely_staging": 0.0}),
+            weights,
+        )[0]
+        stage = compute_priority(
+            score_namespace({"likely_production": 0.0, "likely_staging": 1.0}),
+            weights,
+        )[0]
+        self.assertGreater(prod, stage)
+        self.assertGreaterEqual(stage, 0.0)
+
+    def test_result_never_leaves_zero_to_one(self):
+        weights = parse_weights("production=3")
+        self.assertEqual(
+            compute_priority(score_namespace({"likely_production": 1.0}), weights)[0],
+            1.0,
+        )
+        self.assertEqual(
+            compute_priority(score_namespace({"likely_production": 0.0}), weights)[0],
+            0.0,
+        )
+
+
+class TestAssets(unittest.TestCase):
+    def make(self):
+        outcome = FakeOutcome(
+            hostnames=["admin-api.example.com", "static.example.com"],
+            signals=[
+                {"likely_production": 0.98, "likely_sensitive": 0.96,
+                 "likely_admin": 0.93, "likely_api": 0.97,
+                 "interesting_for_security_research": 0.95,
+                 "likely_internal": 0.3, "likely_staging": 0.05},
+                {"likely_production": 0.4, "likely_sensitive": 0.1,
+                 "likely_admin": 0.05, "likely_api": 0.02,
+                 "interesting_for_security_research": 0.12,
+                 "likely_internal": 0.02, "likely_staging": 0.4},
+            ],
+            relative_pick=[0.81, 0.03],
+        )
+        candidates = {h: FakeCandidate(h) for h in outcome.hostnames}
+        return build_assets([outcome], candidates, DEFAULT_WEIGHTS)
+
+    def test_assets_are_ranked_and_shaped_like_the_contract(self):
+        assets = self.make()
+        top = assets[0]
+        self.assertEqual(top["hostname"], "admin-api.example.com")
+        self.assertGreater(top["priority"], assets[1]["priority"])
+        self.assertEqual(set(top["signals"]), {
+            "likely_production", "likely_sensitive", "likely_internal",
+            "likely_staging", "likely_admin", "likely_api",
+            "interesting_for_security_research",
+        })
+        self.assertEqual(top["batch"]["id"], 0)
+        self.assertEqual(top["incomplete"], False)
+
+    def test_select_and_summary(self):
+        assets = self.make()
+        high = select(assets, 0.7)
+        self.assertEqual([a["hostname"] for a in high], ["admin-api.example.com"])
+        stats = summary(assets, 0.7)
+        self.assertEqual(stats["assets"], 2)
+        self.assertEqual(stats["high_interest"], 1)
+        self.assertEqual(stats["signal_hits_over_0.5"]["production"], 1)
+
+    def test_failed_batch_keeps_its_assets_visible(self):
+        outcome = FakeOutcome(["a.example.com"], [{}], error="HTTP 503")
+        assets = build_assets([outcome], {"a.example.com": FakeCandidate("a.example.com")},
+                              DEFAULT_WEIGHTS)
+        self.assertEqual(len(assets), 1)
+        self.assertIsNone(assets[0]["priority"])
+        self.assertEqual(assets[0]["batch"]["batch_error"], "HTTP 503")
+
+    def test_sort_is_stable_on_ties(self):
+        assets = [
+            {"priority": 0.5, "relative_pick": 0.1, "hostname": "b.example.com"},
+            {"priority": 0.5, "relative_pick": 0.2, "hostname": "a.example.com"},
+            {"priority": None, "relative_pick": 0.9, "hostname": "z.example.com"},
+        ]
+        order = [a["hostname"] for a in sort_assets(assets)]
+        self.assertEqual(order, ["a.example.com", "b.example.com", "z.example.com"])
+
+
+if __name__ == "__main__":
+    unittest.main()

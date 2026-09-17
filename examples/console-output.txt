@@ -1,0 +1,35 @@
+$ jev-recon subdomains.txt --batch-size 20 --concurrency 16 --threshold 0.70 --explain 8
+
+49784 subdomains
+        ↓
+24707 candidates  (24609 removed: duplicate 20974, invalid_syntax 546, ip_literal 455, not_a_hostname 1208, placeholder_label 689, reserved_suffix 517, wildcard 220)
+        ↓
+Jev analysis  (1236 requests · batch 20 · concurrency 16 · 9.4s)
+        ↓
+6 high-interest assets
+
+TOP ASSETS
+────────────────────────────────────
+0.84  admin.graphql.massive-dynamic.io
+0.76  dashboard.graphql.acme-corp.net
+0.76  graphql.kibana.stark-industries.com
+0.76  grafana.rpc.piedpiper.io
+0.74  jenkins.auth.massive-dynamic.io
+0.74  jenkins.scada.veridian.net
+
+SIGNALS (first 8)
+────────────────────────────────────
+                          prod    sens    intl    stag   admin     api   inter
+0.84  admin.graphql.mas    0.87    0.66    0.23    0.09    0.99    0.95    0.83
+0.76  dashboard.graphql    0.84    0.43    0.27    0.06    0.99    0.94    0.77
+0.76  graphql.kibana.st    0.87    0.41    0.57    0.07    0.99    0.96    0.75
+0.76  grafana.rpc.piedp    0.86    0.38    0.60    0.08    0.99    0.95    0.77
+0.74  jenkins.auth.mass    0.88    0.85    0.61    0.06    0.99    0.04    0.78
+0.74  jenkins.scada.ver    0.83    0.85    0.60    0.09    0.99    0.02    0.83
+
+RUN
+────────────────────────────────────
+  signals        likely_production, likely_sensitive, likely_internal, likely_staging, likely_admin, likely_api, interesting_for_security_research
+  scored         24707/24707   incomplete 0   unscored 0
+  requests       1236 sent   retries 0   rate-limit pauses 0
+  tokens         in 26,076,079  out 526,263   est. cost $1.0952   (jev-1.13.0)

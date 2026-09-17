@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.Python
+build/
+dist/
+*.egg-info/
+
+# saídas do jev-recon
+interesting.json
+all.json
+report.json
+subdomains.txt

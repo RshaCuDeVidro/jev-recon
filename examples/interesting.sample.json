@@ -1,0 +1,298 @@
+[
+  {
+    "hostname": "admin.graphql.massive-dynamic.io",
+    "priority": 0.838,
+    "signals": {
+      "likely_production": 0.868,
+      "likely_sensitive": 0.656,
+      "likely_internal": 0.228,
+      "likely_staging": 0.085,
+      "likely_admin": 0.99,
+      "likely_api": 0.946,
+      "interesting_for_security_research": 0.834
+    },
+    "relative_pick": 0.316,
+    "weights_used": {
+      "production": 0.25,
+      "sensitive": 0.25,
+      "admin": 0.15,
+      "api": 0.15,
+      "interesting": 0.2
+    },
+    "missing_signals": [],
+    "batch": {
+      "id": 322,
+      "research_yield": 2.0,
+      "yield_confidence": 0.82,
+      "batch_error": null
+    },
+    "pre": {
+      "registered_parent": "massive-dynamic.io",
+      "documentation_parent": false,
+      "name_tokens": [
+        "admin",
+        "graphql"
+      ],
+      "env_tokens": [],
+      "env_token": null,
+      "privileged_labels": [
+        "admin"
+      ],
+      "noise_labels": [],
+      "numeric_label": false,
+      "digit_share": 0.0,
+      "has_hyphen": true,
+      "label_count": 4,
+      "pre_rank": 1.35
+    },
+    "metadata": {},
+    "incomplete": false
+  },
+  {
+    "hostname": "dashboard.graphql.acme-corp.net",
+    "priority": 0.762,
+    "signals": {
+      "likely_production": 0.838,
+      "likely_sensitive": 0.431,
+      "likely_internal": 0.274,
+      "likely_staging": 0.058,
+      "likely_admin": 0.99,
+      "likely_api": 0.944,
+      "interesting_for_security_research": 0.772
+    },
+    "relative_pick": 0.245,
+    "weights_used": {
+      "production": 0.25,
+      "sensitive": 0.25,
+      "admin": 0.15,
+      "api": 0.15,
+      "interesting": 0.2
+    },
+    "missing_signals": [],
+    "batch": {
+      "id": 349,
+      "research_yield": 2.0,
+      "yield_confidence": 0.82,
+      "batch_error": null
+    },
+    "pre": {
+      "registered_parent": "acme-corp.net",
+      "documentation_parent": false,
+      "name_tokens": [
+        "dashboard",
+        "graphql"
+      ],
+      "env_tokens": [],
+      "env_token": null,
+      "privileged_labels": [
+        "dashboard"
+      ],
+      "noise_labels": [],
+      "numeric_label": false,
+      "digit_share": 0.0,
+      "has_hyphen": true,
+      "label_count": 4,
+      "pre_rank": 1.35
+    },
+    "metadata": {},
+    "incomplete": false
+  },
+  {
+    "hostname": "graphql.kibana.stark-industries.com",
+    "priority": 0.762,
+    "signals": {
+      "likely_production": 0.867,
+      "likely_sensitive": 0.412,
+      "likely_internal": 0.572,
+      "likely_staging": 0.072,
+      "likely_admin": 0.99,
+      "likely_api": 0.957,
+      "interesting_for_security_research": 0.75
+    },
+    "relative_pick": 0.183,
+    "weights_used": {
+      "production": 0.25,
+      "sensitive": 0.25,
+      "admin": 0.15,
+      "api": 0.15,
+      "interesting": 0.2
+    },
+    "missing_signals": [],
+    "batch": {
+      "id": 368,
+      "research_yield": 2.0,
+      "yield_confidence": 0.82,
+      "batch_error": null
+    },
+    "pre": {
+      "registered_parent": "stark-industries.com",
+      "documentation_parent": false,
+      "name_tokens": [
+        "graphql",
+        "kibana"
+      ],
+      "env_tokens": [],
+      "env_token": null,
+      "privileged_labels": [
+        "kibana"
+      ],
+      "noise_labels": [],
+      "numeric_label": false,
+      "digit_share": 0.0,
+      "has_hyphen": true,
+      "label_count": 4,
+      "pre_rank": 1.35
+    },
+    "metadata": {},
+    "incomplete": false
+  },
+  {
+    "hostname": "grafana.rpc.piedpiper.io",
+    "priority": 0.757,
+    "signals": {
+      "likely_production": 0.861,
+      "likely_sensitive": 0.382,
+      "likely_internal": 0.599,
+      "likely_staging": 0.08,
+      "likely_admin": 0.99,
+      "likely_api": 0.955,
+      "interesting_for_security_research": 0.771
+    },
+    "relative_pick": 0.246,
+    "weights_used": {
+      "production": 0.25,
+      "sensitive": 0.25,
+      "admin": 0.15,
+      "api": 0.15,
+      "interesting": 0.2
+    },
+    "missing_signals": [],
+    "batch": {
+      "id": 551,
+      "research_yield": 2.0,
+      "yield_confidence": 0.82,
+      "batch_error": null
+    },
+    "pre": {
+      "registered_parent": "piedpiper.io",
+      "documentation_parent": false,
+      "name_tokens": [
+        "grafana",
+        "rpc"
+      ],
+      "env_tokens": [],
+      "env_token": null,
+      "privileged_labels": [
+        "grafana"
+      ],
+      "noise_labels": [],
+      "numeric_label": false,
+      "digit_share": 0.0,
+      "has_hyphen": false,
+      "label_count": 4,
+      "pre_rank": 1.2
+    },
+    "metadata": {},
+    "incomplete": false
+  },
+  {
+    "hostname": "jenkins.auth.massive-dynamic.io",
+    "priority": 0.742,
+    "signals": {
+      "likely_production": 0.876,
+      "likely_sensitive": 0.853,
+      "likely_internal": 0.608,
+      "likely_staging": 0.064,
+      "likely_admin": 0.99,
+      "likely_api": 0.04,
+      "interesting_for_security_research": 0.778
+    },
+    "relative_pick": 0.148,
+    "weights_used": {
+      "production": 0.25,
+      "sensitive": 0.25,
+      "admin": 0.15,
+      "api": 0.15,
+      "interesting": 0.2
+    },
+    "missing_signals": [],
+    "batch": {
+      "id": 9,
+      "research_yield": 2.0,
+      "yield_confidence": 0.82,
+      "batch_error": null
+    },
+    "pre": {
+      "registered_parent": "massive-dynamic.io",
+      "documentation_parent": false,
+      "name_tokens": [
+        "jenkins",
+        "auth"
+      ],
+      "env_tokens": [],
+      "env_token": null,
+      "privileged_labels": [
+        "jenkins",
+        "auth"
+      ],
+      "noise_labels": [],
+      "numeric_label": false,
+      "digit_share": 0.0,
+      "has_hyphen": true,
+      "label_count": 4,
+      "pre_rank": 2.35
+    },
+    "metadata": {},
+    "incomplete": false
+  },
+  {
+    "hostname": "jenkins.scada.veridian.net",
+    "priority": 0.737,
+    "signals": {
+      "likely_production": 0.83,
+      "likely_sensitive": 0.849,
+      "likely_internal": 0.6,
+      "likely_staging": 0.089,
+      "likely_admin": 0.99,
+      "likely_api": 0.024,
+      "interesting_for_security_research": 0.826
+    },
+    "relative_pick": 0.168,
+    "weights_used": {
+      "production": 0.25,
+      "sensitive": 0.25,
+      "admin": 0.15,
+      "api": 0.15,
+      "interesting": 0.2
+    },
+    "missing_signals": [],
+    "batch": {
+      "id": 27,
+      "research_yield": 2.0,
+      "yield_confidence": 0.82,
+      "batch_error": null
+    },
+    "pre": {
+      "registered_parent": "veridian.net",
+      "documentation_parent": false,
+      "name_tokens": [
+        "jenkins",
+        "scada"
+      ],
+      "env_tokens": [],
+      "env_token": null,
+      "privileged_labels": [
+        "jenkins",
+        "scada"
+      ],
+      "noise_labels": [],
+      "numeric_label": false,
+      "digit_share": 0.0,
+      "has_hyphen": false,
+      "label_count": 4,
+      "pre_rank": 2.2
+    },
+    "metadata": {},
+    "incomplete": false
+  }
+]
