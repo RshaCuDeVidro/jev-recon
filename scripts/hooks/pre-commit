@@ -1,0 +1,35 @@
+#!/bin/sh
+# Refuses to commit target data.
+#
+# Why this exists: `git add -A` shipped a 24,771 host list of a government
+# target, a 249 host list from another engagement, and two run outputs into a dozen commits.
+# Hostnames from a real engagement are the one thing that must never land in a
+# repo, and a file name is not a reliable signal. This checks the content.
+#
+# Install: cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+THRESHOLD=20
+status=0
+
+for file in $(git diff --cached --name-only --diff-filter=ACM); do
+    case "$file" in
+        examples/*|tests/*) continue ;;
+    esac
+    content=$(git show ":$file" 2>/dev/null) || continue
+    case "$file" in
+        *.json|*.jsonl)
+            # inside JSON a hostname is just a quoted string that has a dot
+            hits=$(printf '%s\n' "$content" | grep -cE '"[A-Za-z0-9._-]+\.[a-z]{2,}"') ;;
+        *)
+            # outside JSON a host list is one bare hostname per line
+            hits=$(printf '%s\n' "$content" | grep -cE '^[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z]{2,}$') ;;
+    esac
+    if [ "${hits:-0}" -ge "$THRESHOLD" ]; then
+        echo "pre-commit: '$file' looks like target data ($hits hostnames)." >&2
+        echo "            Hostnames of a real engagement never go into git." >&2
+        echo "            Fix: git rm --cached '$file'   (the file stays on disk)" >&2
+        status=1
+    fi
+done
+
+exit $status
