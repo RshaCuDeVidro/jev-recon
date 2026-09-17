@@ -131,13 +131,12 @@ jq -r '.[:20][] | "\(.priority)  \(.hostname)"' interesting.json
 Exemplo de execução real (dominio proprio, `examples/subfinder-pipeline.txt`):
 
 ```
-5 subdomains → 5 candidates → 1 request · 33.0s → 5 assets
+2 subdomains → 2 candidates → 1 request · 0.9s → 2 assets
 
-0.29  reesxss.pwnd.blog       prod 0.43  sens 0.19  admin 0.08  inter 0.54
-0.27  zimute.pwnd.blog        prod 0.62  sens 0.13  admin 0.06  inter 0.30
-0.23  www.pwnd.blog           prod 0.58  sens 0.14  admin 0.05  inter 0.16
+0.23  flower.pwnd.blog        prod 0.45  sens 0.11  admin 0.04  inter 0.41
+0.20  www.pwnd.blog           prod 0.45  sens 0.14  admin 0.05  inter 0.16
 
-tokens in 7,262   est. cost $0.0003   (jev-1.13.0)
+tokens in 3,151   est. cost $0.0001   (jev-1.13.0)
 ```
 
 ### O que do `httpx -json` chega no Jev
@@ -189,9 +188,9 @@ corte a partir dela. Se nada passar do threshold, o tool avisa em vez de entrega
 um arquivo vazio em silêncio:
 
 ```
-note: no asset reached --threshold 0.55. Top score is 0.28 (reesxss.pwnd.blog).
+note: no asset reached --threshold 0.55. Top score is 0.23 (flower.pwnd.blog).
 Real Jev scores sit lower than the mock's, so pick the cut from the data:
-try --threshold 0.23, or --all-output to keep every asset.
+try --threshold 0.18, or --all-output to keep every asset.
 ```
 
 Maneira rápida de calibrar sem gastar numa lista enorme:

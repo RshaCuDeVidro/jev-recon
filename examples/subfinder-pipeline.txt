@@ -1,80 +1,139 @@
-# own domain, 5 hosts: subfinder | jev-recon (stdin) with httpx as --meta
+# own domain, 2 hosts: subfinder | jev-recon (stdin) with httpx as --meta
+# captured output, nothing edited except the elisions marked with ...
 
 $ subfinder -d pwnd.blog -silent | sort -u | tee hosts.txt | wc -l
-5
+2
 
 $ httpx -silent -json -l hosts.txt -o probe.json -status-code -title -tech-detect -web-server -ports 443,80
+// one host answers: flower.pwnd.blog, 308 on port 80, 200 on 443 with title "flor"
+// and tech Cloudflare, HSTS, HTTP/3, Three.js, Vercel. www.pwnd.blog does not answer.
 
 $ subfinder -d pwnd.blog -silent | sort -u | jev-recon - --meta probe.json \
-    --threshold 0.0 --top 6 --explain 6 --cache jev-cache.json \
-    --output interesting.json --report report.json
+    --threshold 0.0 --top 6 --explain 6 --reasons 2 \
+    --cache jev-cache.json --output interesting.json --report report.json
 
-5 subdomains
+2 subdomains
         ↓
-5 candidates
+2 candidates
         ↓
-Jev analysis  (1 requests · batch 20 · concurrency 8 · 31.6s)
+Jev analysis  (1 requests · batch 20 · concurrency 8 · 0.9s)
         ↓
-5 high-interest assets
+2 high-interest assets  (priority >= 0.00)
 
 TOP ASSETS
 ────────────────────────────────────
-0.28  reesxss.pwnd.blog
-0.26  zimute.pwnd.blog
-0.22  www.pwnd.blog
-0.21  te.amo.lamiah.pwnd.blog
-0.19  te.amo.maju.pwnd.blog
+0.23  flower.pwnd.blog
+0.20  www.pwnd.blog
 
 SIGNALS (first 6)
 ────────────────────────────────────
-                              prod   sens   intl   stag   admin  api    inter
-0.28  reesxss.pwnd.blog       0.42   0.18   0.17   0.14   0.08   0.07   0.53
-0.26  zimute.pwnd.blog        0.61   0.13   0.14   0.10   0.06   0.06   0.30
-0.22  www.pwnd.blog           0.57   0.14   0.14   0.09   0.05   0.04   0.16
-0.21  te.amo.lamiah.pwnd.blog 0.42   0.14   0.19   0.16   0.05   0.06   0.26
-0.19  te.amo.maju.pwnd.blog   0.40   0.15   0.20   0.16   0.06   0.05   0.20
+                          prod    sens    intl    stag   admin     api  devops   inter
+0.23  flower.pwnd.blog     0.45    0.11    0.13    0.15    0.04    0.04     -      0.41
+0.20  www.pwnd.blog        0.45    0.14    0.17    0.12    0.05    0.05     -      0.16
+
+WHY (top 2)
+────────────────────────────────────
+0.23  flower.pwnd.blog
+      ├─ evidence: title "flor"
+      └─ evidence: Cloudflare, HSTS, HTTP/3, Three.js
+0.20  www.pwnd.blog
+      └─ no signal above the floor
 
 RUN
 ────────────────────────────────────
   signals        likely_production, likely_sensitive, likely_internal, likely_staging, likely_admin, likely_api, interesting_for_security_research
-  scored         5/5   incomplete 0   unscored 0
+  scored         2/2   incomplete 0   unscored 0
   requests       1 sent   retries 0   rate-limit pauses 0
   cache          0 hits   1 stored
-  tokens         in 6,251  out 838   est. cost $0.0003   (jev-1.13.0)
-// report.json, usage
+  tokens         in 3,151  out 361   est. cost $0.0001   (jev-1.13.0)
+
+// report.json, trimmed to input, summary and usage
 {
-  "requests_sent": 1,
-  "requests_ok": 1,
-  "retries": 0,
-  "retries_by_status": {},
-  "batches_planned": 1,
-  "batches_failed": 0,
-  "adaptive_splits": 0,
-  "rate_limit_pauses": 0,
-  "paused_seconds": 0.0,
-  "cache_hits": 0,
-  "cache_writes": 1,
-  "input_tokens": 6251,
-  "output_tokens": 838,
-  "models_seen": [
-    "jev-1.13.0"
+  "tool": "jev-recon",
+  "version": "0.1.0",
+  "model_requested": "jev-latest",
+  "input": {
+    "lines": 2,
+    "candidates": 2,
+    "preprocess": {
+      "total_lines": 2,
+      "duplicates": 0,
+      "dropped": {},
+      "kept": 2,
+      "annotated": {},
+      "groups": 1
+    }
+  },
+  "signals": [
+    "likely_production",
+    "likely_sensitive",
+    "likely_internal",
+    "likely_staging",
+    "likely_admin",
+    "likely_api",
+    "likely_devops",
+    "interesting_for_security_research"
   ],
-  "estimated_cost_usd": 0.000263,
-  "wall_seconds": 1.09
+  "weights": {
+    "production": 0.25,
+    "sensitive": 0.25,
+    "admin": 0.15,
+    "api": 0.15,
+    "interesting": 0.2
+  },
+  "summary": {
+    "assets": 2,
+    "scored": 2,
+    "high_interest": 2,
+    "unscored": 0,
+    "incomplete": 0,
+    "threshold": 0.0,
+    "above_threshold": 2,
+    "suppressed_by_shape": 0
+  },
+  "usage": {
+    "requests_sent": 1,
+    "requests_ok": 1,
+    "retries": 0,
+    "retries_by_status": {},
+    "batches_planned": 1,
+    "batches_failed": 0,
+    "adaptive_splits": 0,
+    "rate_limit_pauses": 0,
+    "paused_seconds": 0.0,
+    "cache_hits": 0,
+    "cache_writes": 1,
+    "input_tokens": 3151,
+    "output_tokens": 361,
+    "models_seen": [
+      "jev-1.13.0"
+    ],
+    "estimated_cost_usd": 0.000132,
+    "wall_seconds": 0.95
+  },
+  "batch_errors": []
 }
 
 # same cache, different weights: re-ranking is not paid twice
-$ jev-recon - --meta probe.json --cache jev-cache.json --weights 'sensitive=0.35,admin=0.30,interesting=0.35'
+$ jev-recon - --meta probe.json --cache jev-cache.json --threshold 0.0 \
+    --weights 'sensitive=0.35,admin=0.30,interesting=0.35'
 
 TOP ASSETS
 ────────────────────────────────────
-0.27  reesxss.pwnd.blog
-0.17  zimute.pwnd.blog
+0.19  flower.pwnd.blog
+0.12  www.pwnd.blog
 
 RUN
 ────────────────────────────────────
   signals        likely_production, likely_sensitive, likely_internal, likely_staging, likely_admin, likely_api, interesting_for_security_research
-  scored         5/5   incomplete 0   unscored 0
+  scored         2/2   incomplete 0   unscored 0
   requests       0 sent   retries 0   rate-limit pauses 0
   cache          1 hits   0 stored
   tokens         in 0  out 0   est. cost $0.0000   (jev-1.13.0)
+
+# and the default threshold, which this domain does not reach
+$ jev-recon - --meta probe.json --cache jev-cache.json
+
+note: no asset reached --threshold 0.55. Top score is 0.23 (flower.pwnd.blog).
+Real Jev scores sit lower than the mock's, so pick the cut from the data:
+try --threshold 0.18, or --all-output to keep every asset.
