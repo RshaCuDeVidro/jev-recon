@@ -20,3 +20,10 @@ demo-cache.json
 # artefatos do benchmark
 bench/
 bench-*/
+
+# saída de execução real: hostname de alvo não entra em git
+hi.json
+hi*.json
+gov*.json
+*.jsonl
+probe.json
