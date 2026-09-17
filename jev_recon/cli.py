@@ -147,6 +147,7 @@ def print_funnel(
     high_interest: int,
     dry_run: bool,
     elapsed: float,
+    threshold: float = 0.0,
 ) -> None:
     print(f"{total_lines} subdomains")
     print("        ↓")
@@ -158,7 +159,7 @@ def print_funnel(
     mode = "dry run, nothing sent" if dry_run else f"batch {batch_size} · concurrency {concurrency}"
     print(f"Jev analysis  ({batches} requests · {mode} · {elapsed:.1f}s)")
     print("        ↓")
-    print(f"{high_interest} high-interest assets")
+    print(f"{high_interest} high-interest assets  (priority >= {threshold:.2f})")
     print()
 
 
@@ -301,6 +302,7 @@ async def run(args: argparse.Namespace) -> int:
         print_funnel(
             len(lines), report, len(candidates), len(batches), batch_size,
             args.concurrency, 0, True, time.monotonic() - started,
+            args.threshold,
         )
         print_dry_run(plan, payload)
         return 0
@@ -338,11 +340,21 @@ async def run(args: argparse.Namespace) -> int:
     elapsed = time.monotonic() - started
     print_funnel(
         len(lines), report, len(candidates), len(batches), batch_size,
-        args.concurrency, len(high_interest), False, elapsed,
+        args.concurrency, len(high_interest), False, elapsed, args.threshold,
     )
     print_top(high_interest[: args.top] if args.top else high_interest)
     print_explain(high_interest if args.explain else [], args.explain)
     print_footer(stats, summary_dict, signals)
+    if not high_interest and summary_dict["scored"]:
+        best = next(a for a in assets if a["priority"] is not None)
+        print(
+            f"note: no asset reached --threshold {args.threshold:.2f}. "
+            f"Top score is {best['priority']:.2f} ({best['hostname']}). "
+            "Real Jev scores sit lower than the mock's, so pick the cut from the "
+            f"data: try --threshold {max(0.0, best['priority'] - 0.05):.2f}, "
+            f"or --all-output to keep every asset.",
+            file=sys.stderr,
+        )
     if stats["batches_failed"]:
         print(
             f"WARNING: {stats['batches_failed']} of {stats['batches_planned']} "
@@ -438,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="optional file with every analyzed asset")
     parser.add_argument("--report", default=None,
                         help="optional run report (counts, usage, cost, errors)")
-    parser.add_argument("--threshold", type=float, default=0.70,
+    parser.add_argument("--threshold", type=float, default=0.55,
                         help="priority at or above which an asset is high-interest")
     parser.add_argument("--top", type=int, default=25, help="rows printed in TOP ASSETS")
     parser.add_argument("--explain", type=int, default=0,

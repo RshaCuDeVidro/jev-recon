@@ -16,7 +16,7 @@ import unittest
 
 import _bootstrap  # noqa: F401  (repo root and scripts/ on sys.path)
 
-from mock_typesafe_server import serve  # noqa: E402
+from mock_typesafe_server import Handler, serve  # noqa: E402
 
 from jev_recon.cache import ResponseCache  # noqa: E402
 from jev_recon.cli import main  # noqa: E402
@@ -44,6 +44,11 @@ class MockServer:
     @property
     def base_url(self):
         return f"http://127.0.0.1:{self.port}"
+
+    @property
+    def max_in_flight(self) -> int:
+        """Highest number of requests the server served at the same time."""
+        return Handler.max_in_flight
 
     def __enter__(self):
         self.thread.start()
@@ -89,14 +94,22 @@ class TestBatching(unittest.TestCase):
         self.assertIn("jev-1.13.0", client.stats.models_seen)
 
     def test_requests_are_not_serialised(self):
-        """12 batches at concurrency 12 with per-request latency finish fast."""
+        """12 batches at concurrency 12 must genuinely overlap on the wire.
+
+        Measured server-side instead of by wall clock: the mock counts how many
+        requests it was serving at the same time, which does not care how loaded
+        the machine is.
+        """
         candidates = prepare(HOSTS).candidates
         with MockServer(latency=0.2) as server:
             client = client_for(server)
             outcomes = run(client.analyze(candidates, batch_size=1, concurrency=12))
-        self.assertEqual(len(outcomes), 12)
-        # serial would be >= 2.4s; the limit is generous to survive slow CI
-        self.assertLess(client.stats.seconds, 1.6)
+            self.assertEqual(len(outcomes), 12)
+            self.assertGreaterEqual(
+                server.max_in_flight, 4, "requests were served one at a time"
+            )
+        # 12 batches x 0.2s of latency is the floor for a serial run
+        self.assertLess(client.stats.seconds, 2.4)
 
     def test_batch_size_is_capped_by_the_question_limit(self):
         candidates = prepare([f"h{i}.example.com" for i in range(30)]).candidates
@@ -258,6 +271,26 @@ class TestCli(unittest.TestCase):
             self.assertIsNone(record["priority"])
             self.assertTrue(record["incomplete"])
             self.assertTrue(record["batch"]["batch_error"])
+
+    def test_threshold_too_high_says_so_instead_of_writing_an_empty_file(self):
+        """The mock is generous, real Jev is not: never leave the user guessing."""
+        import contextlib
+        import io
+
+        out = os.path.join(self.tmp.name, "empty.json")
+        stderr = io.StringIO()
+        with MockServer() as server:
+            with contextlib.redirect_stderr(stderr):
+                code = main([
+                    self.input, "--output", out, "--base-url", server.base_url,
+                    "--api-key", API_KEY, "--threshold", "0.99", "--quiet",
+                    "--env-file", os.path.join(self.tmp.name, "nope.env"),
+                ])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(open(out).read()), [])
+        message = stderr.getvalue()
+        self.assertIn("no asset reached --threshold 0.99", message)
+        self.assertIn("try --threshold", message)
 
     def test_missing_key_is_a_fatal_error(self):
         env = dict(os.environ)

@@ -30,7 +30,7 @@ jev-recon/
 ├── scripts/
 │   ├── gen_sample.py             gera uma lista sintética grande para demo/carga
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                52 testes (unittest, sem dependências extras)
+├── tests/                53 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
 ├── requirements.txt      httpx
 ├── pyproject.toml
@@ -45,6 +45,21 @@ Dependência de runtime: **httpx**. Sem framework, sem banco, sem frontend.
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt        # ou: .venv/bin/pip install -e .
 cp .env.example .env                             # e preencha a chave
+```
+
+O `pip install -e .` cria o script `jev-recon` dentro de `.venv/bin/`, que não
+está no PATH. Três saídas, em ordem de conveniência:
+
+```bash
+# 1. um launcher no ~/.local/bin (é o que já está feito nesta máquina)
+printf '#!/bin/sh\nexec %s/.venv/bin/python -m jev_recon "$@"\n' "$PWD" > ~/.local/bin/jev-recon
+chmod +x ~/.local/bin/jev-recon
+
+# 2. ativar o venv a cada sessão
+source .venv/bin/activate
+
+# 3. sem instalar nada
+.venv/bin/python -m jev_recon hosts.txt
 ```
 
 `.env`:
@@ -73,15 +88,18 @@ httpx -silent -json -l hosts.txt -o probe.json \
 
 # 3. prioriza
 jev-recon hosts.txt --meta probe.json --cache jev-cache.json \
-    --threshold 0.70 --output interesting.json --all-output all.json
+    --all-output all.json --threshold 0.55 --output interesting.json
 ```
 
 Sem arquivo intermediário, tudo por pipe:
 
 ```bash
 subfinder -d alvo.com -silent | sort -u | jev-recon - --meta probe.json \
-    --cache jev-cache.json --threshold 0.70 --output interesting.json
+    --cache jev-cache.json --all-output all.json --output interesting.json
 ```
+
+O `--all-output` no primeiro run não é enfeite: veja "Escolhendo o threshold"
+abaixo antes de cortar.
 
 E o que sai daqui vai para a etapa caríssima:
 
@@ -140,6 +158,38 @@ do projeto, `~/.config/jev-recon/.env`. Então você pode chamar o `jev-recon` d
 dentro de qualquer pasta de engajamento que a chave é encontrada. Se você nomear
 um arquivo explícito (`--env-file x.env`), só esse é usado, sem fallback.
 
+### Escolhendo o threshold
+
+O `--threshold` default é 0.55, e ele não é um número sagrado. A escala real do
+Jev é mais baixa do que parece: medido em três conjuntos diferentes, com os pesos
+default,
+
+```
+nomes sujos de privilegio (admin-api, bastion, vpn, db, jenkins)   0.51 a 0.63
+nomes internos depois de tirar o peso de production                 0.70 a 0.80
+sites estaticos sem nada privilegiado (www, landing, vercel)       0.13 a 0.29
+```
+
+Então: rode o primeiro run com `--all-output`, olhe a distribuição, e escolha o
+corte a partir dela. Se nada passar do threshold, o tool avisa em vez de entregar
+um arquivo vazio em silêncio:
+
+```
+note: no asset reached --threshold 0.55. Top score is 0.28 (reesxss.pwnd.blog).
+Real Jev scores sit lower than the mock's, so pick the cut from the data:
+try --threshold 0.23, or --all-output to keep every asset.
+```
+
+Maneira rápida de calibrar sem gastar numa lista enorme:
+
+```bash
+jev-recon hosts.txt --limit 300 --all-output calib.json --threshold 0.0
+jq -r '[.[].priority] | "max \(max)  min \(min)  mediana \(.[length/2|floor])"' calib.json
+jq -r '[.[].priority] | sort | reverse | .[0:20] | @csv' calib.json
+```
+
+Depois, com `--cache`, re-cortar e re-pesar é de graça.
+
 ## Uso genérico
 
 ```bash
@@ -164,7 +214,7 @@ entrada/saída
   --output F             high-interest, ordenado (default interesting.json)
   --all-output F         tudo, com priority null nos que falharam
   --report F             contagens, batching, pesos, uso, custo, erros
-  --threshold F          corte de high-interest (default 0.70)
+  --threshold F          corte de high-interest (default 0.55, veja acima)
   --top N / --explain N  linhas no TOP ASSETS / tabela de sinais
 
 decisão
@@ -522,7 +572,7 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 ## 7. Testes e demo sem API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests     # 40 testes, sem dependências extras
+.venv/bin/python -m unittest discover -s tests     # 53 testes, sem dependências extras
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
 

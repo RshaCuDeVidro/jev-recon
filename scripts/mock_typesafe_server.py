@@ -158,11 +158,19 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "mock-typesafe/0.1"
     cfg: argparse.Namespace
     counter = 0
+    in_flight = 0
+    max_in_flight = 0
     lock = threading.Lock()
 
     def log_message(self, fmt, *args):  # quiet by default
         if self.cfg.verbose:
             sys.stderr.write("mock: " + fmt % args + "\n")
+
+    def _overlap(self, delta: int) -> None:
+        """Track how many requests are being served at the same time."""
+        with Handler.lock:
+            Handler.in_flight += delta
+            Handler.max_in_flight = max(Handler.max_in_flight, Handler.in_flight)
 
     def _send(self, status: int, payload: dict, headers: dict | None = None) -> None:
         body = json.dumps(payload).encode()
@@ -200,7 +208,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.cfg.latency:
-            time.sleep(self.cfg.latency)
+            self._overlap(1)
+            try:
+                time.sleep(self.cfg.latency)
+            finally:
+                self._overlap(-1)
 
         with Handler.lock:
             Handler.counter += 1
@@ -295,6 +307,8 @@ def serve(port: int = 8712, host: str = "127.0.0.1", **kwargs) -> ThreadingHTTPS
     defaults.update(kwargs)
     Handler.cfg = argparse.Namespace(**defaults)
     Handler.counter = 0
+    Handler.in_flight = 0
+    Handler.max_in_flight = 0
     httpd = ThreadingHTTPServer((host, port), Handler)
     return httpd
 
