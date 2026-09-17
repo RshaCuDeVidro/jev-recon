@@ -30,7 +30,7 @@ jev-recon/
 ├── scripts/
 │   ├── gen_sample.py             gera uma lista sintética grande para demo/carga
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                53 testes (unittest, sem dependências extras)
+├── tests/                55 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
 ├── requirements.txt      httpx
 ├── pyproject.toml
@@ -86,10 +86,17 @@ subfinder -d alvo.com -silent | sort -u > hosts.txt
 httpx -silent -json -l hosts.txt -o probe.json \
       -status-code -title -tech-detect -web-server -ports 443,80,8080,8443
 
-# 3. prioriza
+# 3. confere o plano e o custo antes de gastar (nada é enviado)
+jev-recon hosts.txt --meta probe.json --dry-run
+
+# 4. prioriza
 jev-recon hosts.txt --meta probe.json --cache jev-cache.json \
     --all-output all.json --threshold 0.55 --output interesting.json
 ```
+
+Se você pular o passo 2, tire o `--meta` dos passos 3 e 4: o `probe.json` só
+existe depois que o httpx roda. Um `--meta probe.json` apontando para arquivo
+inexistente para o tool com a instrução do que fazer, e nada é enviado à API.
 
 Sem arquivo intermediário, tudo por pipe:
 
@@ -572,7 +579,7 @@ Da página de jaggedness do `jev-1.13`, aplicado aqui:
 ## 7. Testes e demo sem API key
 
 ```bash
-.venv/bin/python -m unittest discover -s tests     # 53 testes, sem dependências extras
+.venv/bin/python -m unittest discover -s tests     # 55 testes, sem dependências extras
 .venv/bin/pip install -e '.[dev]' && .venv/bin/python -m pytest -q
 ```
 

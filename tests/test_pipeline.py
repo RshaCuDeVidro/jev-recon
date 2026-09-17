@@ -292,6 +292,36 @@ class TestCli(unittest.TestCase):
         self.assertIn("no asset reached --threshold 0.99", message)
         self.assertIn("try --threshold", message)
 
+    def test_missing_meta_file_explains_itself(self):
+        """A --meta path that does not exist yet must not dump a raw errno."""
+        import contextlib
+        import io
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = main([
+                self.input, "--meta", os.path.join(self.tmp.name, "probe.json"),
+                "--env-file", os.path.join(self.tmp.name, "nope.env"),
+            ])
+        self.assertEqual(code, 2)
+        message = stderr.getvalue()
+        self.assertIn("--meta file not found", message)
+        self.assertIn("httpx -silent -json", message)
+        self.assertIn("or drop --meta", message)
+
+    def test_missing_input_file_explains_itself(self):
+        import contextlib
+        import io
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = main([
+                os.path.join(self.tmp.name, "no-such-list.txt"),
+                "--env-file", os.path.join(self.tmp.name, "nope.env"),
+            ])
+        self.assertEqual(code, 2)
+        self.assertIn("input file not found", stderr.getvalue())
+
     def test_missing_key_is_a_fatal_error(self):
         env = dict(os.environ)
         os.environ.pop("TYPESAFE_API_KEY", None)

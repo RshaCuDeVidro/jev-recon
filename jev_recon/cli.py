@@ -235,6 +235,19 @@ def print_dry_run(plan: dict, payload: dict | None) -> None:
 # ---------------------------------------------------------------------------
 
 
+def require_file(path: str | None, flag: str) -> int | None:
+    """Return an exit code when a file the user named is not there."""
+    if not path or path in {"-", "/dev/stdin"} or Path(path).exists():
+        return None
+    hint = ""
+    if flag == "--meta":
+        hint = ("\n  create it first: httpx -silent -json -l hosts.txt -o "
+                f"{path} -status-code -title -tech-detect -web-server")
+        hint += "\n  or drop --meta and run on the names alone"
+    print(f"fatal: {flag} file not found: {path}{hint}", file=sys.stderr)
+    return 2
+
+
 async def run(args: argparse.Namespace) -> int:
     started = time.monotonic()
     if args.input in {"-", "/dev/stdin"} and sys.stdin.isatty():
@@ -244,6 +257,10 @@ async def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    for path, flag in ((args.input, "input"), (args.meta, "--meta")):
+        code = require_file(path, flag)
+        if code is not None:
+            return code
     lines, meta = load_input(args.input)
     if args.meta:
         meta = {**meta, **load_metadata(args.meta)}
@@ -514,7 +531,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fatal: {exc}", file=sys.stderr)
         return 2
     except FileNotFoundError as exc:
-        print(f"fatal: {exc}", file=sys.stderr)
+        print(f"fatal: file not found: {exc.filename}", file=sys.stderr)
         return 2
 
 
