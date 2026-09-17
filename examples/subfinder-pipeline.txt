@@ -1,0 +1,80 @@
+# dominio proprio, 5 hosts: subfinder | jev-recon (stdin) + httpx como --meta
+
+$ subfinder -d pwnd.blog -silent | sort -u | tee hosts.txt | wc -l
+5
+
+$ httpx -silent -json -l hosts.txt -o probe.json -status-code -title -tech-detect -web-server -ports 443,80
+
+$ subfinder -d pwnd.blog -silent | sort -u | jev-recon - --meta probe.json \
+    --threshold 0.0 --top 6 --explain 6 --cache jev-cache.json \
+    --output interesting.json --report report.json
+
+5 subdomains
+        ↓
+5 candidates
+        ↓
+Jev analysis  (1 requests · batch 20 · concurrency 8 · 31.6s)
+        ↓
+5 high-interest assets
+
+TOP ASSETS
+────────────────────────────────────
+0.28  reesxss.pwnd.blog
+0.26  zimute.pwnd.blog
+0.22  www.pwnd.blog
+0.21  te.amo.lamiah.pwnd.blog
+0.19  te.amo.maju.pwnd.blog
+
+SIGNALS (first 6)
+────────────────────────────────────
+                          prod    sens    intl    stag   admin     api   inter
+0.28  reesxss.pwnd.blog      0.42    0.18    0.17    0.14    0.08    0.07    0.53
+0.26  zimute.pwnd.blog       0.61    0.13    0.14    0.10    0.06    0.06    0.30
+0.22  www.pwnd.blog          0.57    0.14    0.14    0.09    0.05    0.04    0.16
+0.21  te.amo.lamiah.pwnd.blog    0.42    0.14    0.19    0.16    0.05    0.06    0.26
+0.19  te.amo.maju.pwnd.blog.l    0.40    0.15    0.20    0.16    0.06    0.05    0.20
+
+RUN
+────────────────────────────────────
+  signals        likely_production, likely_sensitive, likely_internal, likely_staging, likely_admin, likely_api, interesting_for_security_research
+  scored         5/5   incomplete 0   unscored 0
+  requests       1 sent   retries 0   rate-limit pauses 0
+  cache          0 hits   1 stored
+  tokens         in 6,251  out 838   est. cost $0.0003   (jev-1.13.0)
+// report.json, usage
+{
+  "requests_sent": 1,
+  "requests_ok": 1,
+  "retries": 0,
+  "retries_by_status": {},
+  "batches_planned": 1,
+  "batches_failed": 0,
+  "adaptive_splits": 0,
+  "rate_limit_pauses": 0,
+  "paused_seconds": 0.0,
+  "cache_hits": 0,
+  "cache_writes": 1,
+  "input_tokens": 6251,
+  "output_tokens": 838,
+  "models_seen": [
+    "jev-1.13.0"
+  ],
+  "estimated_cost_usd": 0.000263,
+  "wall_seconds": 1.09
+}
+
+# mesma cache, pesos diferentes: re-rankear nao se paga de novo
+$ jev-recon - --meta probe.json --cache jev-cache.json --weights 'sensitive=0.35,admin=0.30,interesting=0.35'
+
+TOP ASSETS
+────────────────────────────────────
+0.27  reesxss.pwnd.blog
+0.17  zimute.pwnd.blog
+
+RUN
+────────────────────────────────────
+  signals        likely_production, likely_sensitive, likely_internal, likely_staging, likely_admin, likely_api, interesting_for_security_research
+  scored         5/5   incomplete 0   unscored 0
+  requests       0 sent   retries 0   rate-limit pauses 0
+  cache          1 hits   0 stored
+  tokens         in 0  out 0   est. cost $0.0000   (jev-1.13.0)

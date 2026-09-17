@@ -14,7 +14,10 @@ Two different things happen to a hostname that looks like noise:
 from __future__ import annotations
 
 import ipaddress
+import json
+import os
 import re
+import sys
 from dataclasses import dataclass, field
 
 # --------------------------------------------------------------------------
@@ -104,13 +107,43 @@ RESERVED_SUFFIXES = (
     ".onion", ".arpa",
 )
 
+#: What actually goes into the Jev ``state``. Jev's own guidance is to filter
+#: before sending: unrelated detail is a distractor and costs accuracy. Everything
+#: else stays in the output file, so nothing is lost, it just does not get asked
+#: about. ``httpx -json`` alone emits around 25 keys per host.
+STATE_META_FIELDS = frozenset(
+    {
+        "resolved_ips", "http_status", "title", "server", "ports",
+        "technologies", "scheme", "final_url", "redirect_to", "cdn",
+        "cname", "content_length", "response_time", "probe_failed",
+    }
+)
+
+#: Keys other tools emit, mapped onto the names this tool documents. Anything
+#: not listed passes through unchanged, so no field is silently dropped.
+META_ALIASES = {
+    # httpx -json
+    "url": "url", "final_url": "final_url", "status_code": "http_status",
+    "status": "http_status", "title": "title", "page_title": "title",
+    "webserver": "server", "tech": "technologies", "port": "ports",
+    "scheme": "scheme", "content_length": "content_length",
+    "location": "redirect_to", "cdn_name": "cdn", "cdn_type": "cdn",
+    "response_time": "response_time", "failed": "probe_failed",
+    # subfinder / dnsx
+    "ip": "resolved_ips", "a": "resolved_ips", "host_ip": "resolved_ips",
+    "cname": "cname", "source": "sources",
+}
+
+#: Fields that must reach Jev as a list, however the tool wrote them.
+LIST_META = frozenset(
+    {"resolved_ips", "ports", "technologies", "sources", "cname"}
+)
+
+#: Keys that carry the hostname itself, in the order we prefer them.
+HOST_KEYS = ("hostname", "host", "input", "url")
+
 LABEL_RE = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
 SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.I)
-DROP_REASONS_ORDER = (
-    "duplicate", "invalid_syntax", "not_a_hostname", "ip_literal",
-    "reserved_suffix", "placeholder_label", "throwaway_only", "wildcard",
-    "capped_per_parent", "limit",
-)
 
 
 @dataclass(slots=True)
@@ -121,8 +154,19 @@ class ParserOptions:
     allow_underscore: bool = False
     drop_throwaway: bool = False
     max_per_parent: int = 0          # 0 = disabled
+    state_meta_fields: frozenset[str] = STATE_META_FIELDS
     hard_drop_labels: frozenset[str] = HARD_DROP_LABELS
     throwaway_labels: frozenset[str] = THROWAWAY_LABELS
+
+    def select_meta(self, meta: dict) -> dict:
+        """The enrichment worth keeping, for the state and for the output file.
+
+        One knob, so the file never carries fields the model was not shown, and
+        the default keeps both small.
+        """
+        if "*" in self.state_meta_fields:
+            return dict(meta)
+        return {k: v for k, v in meta.items() if k in self.state_meta_fields}
 
 
 @dataclass(slots=True)
@@ -149,8 +193,6 @@ class Candidate:
             "subdomain_depth": self.depth,
             "code_extracted": self.pre,
         }
-        # Optional enrichment (resolved_ips, http_status, title, server, ports,
-        # technologies, ...) is merged in last so it never shadows the core keys.
         for key, value in self.meta.items():
             if key not in item:
                 item[key] = value
@@ -343,13 +385,14 @@ def prepare(
                 report.annotated.get("documentation_parent", 0) + 1
             )
 
+        enriched = opts.select_meta(metadata.get(host, {}))
         staged.append(
             Candidate(
                 hostname=host,
                 labels=labels,
                 depth=len(labels),
                 pre=pre,
-                meta=metadata.get(host, {}),
+                meta=enriched,
             )
         )
 
@@ -385,60 +428,123 @@ def prepare(
     return report
 
 
-def load_metadata(path: str) -> dict[str, dict]:
-    """Load optional enrichment.
+#: Keys other tools emit, mapped onto the names this tool documents. Anything
+#: not listed passes through unchanged, so no field is silently dropped.
+META_ALIASES = {
+    # httpx -json
+    "url": "url", "final_url": "final_url", "status_code": "http_status",
+    "status": "http_status", "title": "title", "page_title": "title",
+    "webserver": "server", "tech": "technologies", "port": "ports",
+    "scheme": "scheme", "content_length": "content_length",
+    "location": "redirect_to", "cdn_name": "cdn", "cdn_type": "cdn",
+    "response_time": "response_time", "failed": "probe_failed",
+    # subfinder / dnsx
+    "ip": "resolved_ips", "a": "resolved_ips", "host_ip": "resolved_ips",
+    "cname": "cname", "source": "sources",
+}
 
-    Three shapes are accepted, because all three show up in real pipelines:
+#: Fields that must reach Jev as a list, however the tool wrote them.
+LIST_META = frozenset(
+    {"resolved_ips", "ports", "technologies", "sources", "cname"}
+)
 
-    * ``{"hostname": {"http_status": 200, ...}, ...}``  (a map)
-    * ``[{"hostname": "...", ...}, ...]``                (a list of records)
-    * one JSON object per line                            (JSONL)
+#: Keys that carry the hostname itself, in the order we prefer them.
+HOST_KEYS = ("hostname", "host", "input", "url")
+
+
+def canonical_meta(row: dict) -> dict:
+    """Normalise a tool's record into the field names the state documents.
+
+    ``httpx -json`` writes ``status_code``, ``tech`` and ``webserver``; the
+    canonical names are ``http_status``, ``technologies`` and ``server``.
     """
-    import json
+    meta: dict = {}
+    for key, value in row.items():
+        if key in HOST_KEYS:
+            continue
+        name = META_ALIASES.get(key, key)
+        if name in LIST_META and not isinstance(value, list):
+            pieces = str(value).replace(";", ",").split(",")
+            value = [piece.strip() for piece in pieces if piece.strip()]
+        meta[name] = value
+    return meta
 
+
+def rows_to_input(rows) -> tuple[list[str], dict[str, dict]]:
+    """Turn records or plain strings into host lines plus per-host metadata."""
+    lines: list[str] = []
+    meta: dict[str, dict] = {}
+    for row in rows:
+        if isinstance(row, str):
+            lines.append(row)
+            continue
+        if not isinstance(row, dict):
+            continue
+        raw = next((row[key] for key in HOST_KEYS if row.get(key)), "")
+        host = normalize_host(str(raw))
+        if not host:
+            continue
+        lines.append(host)
+        # Later rows for the same host merge over earlier ones, but an empty
+        # value never erases a real one: httpx writes one row per port, and the
+        # redirect row has no title.
+        extra = {k: v for k, v in canonical_meta(row).items()
+                 if v not in (None, "", [], {})}
+        if extra:
+            meta[host] = {**meta.get(host, {}), **extra}
+    return lines, meta
+
+
+def _read_input(path: str) -> tuple[str, str]:
+    """Read the input text. ``-`` reads stdin, so pipes work."""
+    if path in {"-", "/dev/stdin"}:
+        return sys.stdin.read(), ""
     with open(path, "r", encoding="utf-8") as fh:
-        text = fh.read()
+        return fh.read(), os.path.splitext(path)[1].lower()
+
+
+def load_input(path: str) -> tuple[list[str], dict[str, dict]]:
+    """Read a host list from txt, json, jsonl, or ``-`` for stdin.
+
+    Both halves of the usual recon pipeline feed straight in:
+
+        subfinder -d alvo -silent            -> one host per line
+        httpx -json -l hosts                 -> one JSON object per line
+    """
+    text, suffix = _read_input(path)
     stripped = text.lstrip()
 
     if stripped.startswith("["):
-        rows = json.loads(text)
-        meta = {
-            row["hostname"]: row
-            for row in rows
-            if isinstance(row, dict) and row.get("hostname")
-        }
-    elif stripped.startswith("{"):
+        return rows_to_input(json.loads(text))
+    if stripped.startswith("{") or suffix == ".jsonl":
+        data = None
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            data = None
-        if isinstance(data, dict) and data.get("hostname"):
-            meta = {data["hostname"]: data}
-        elif isinstance(data, dict):
-            meta = {h: v for h, v in data.items() if isinstance(v, dict)}
-        else:
-            meta = _load_jsonl(text)
-    else:
-        meta = _load_jsonl(text)
+            pass
+        if isinstance(data, list):
+            return rows_to_input(data)
+        if isinstance(data, dict):
+            if any(data.get(key) for key in HOST_KEYS):
+                return rows_to_input([data])
+            return rows_to_input(
+                [
+                    {"hostname": host, **(row if isinstance(row, dict) else {})}
+                    for host, row in data.items()
+                ]
+            )
+        lines = []
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                lines.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"line {number} is not valid JSON: {exc}") from exc
+        return rows_to_input(lines)
+    return rows_to_input(text.splitlines())
 
-    out: dict[str, dict] = {}
-    for host, row in meta.items():
-        clean = normalize_host(str(host))
-        if not clean:
-            continue
-        out[clean] = {k: v for k, v in row.items() if k != "hostname"}
-    return out
 
-
-def _load_jsonl(text: str) -> dict:
-    import json
-
-    out: dict[str, dict] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        row = json.loads(line)
-        if isinstance(row, dict) and "hostname" in row:
-            out[row["hostname"]] = row
-    return out
+def load_metadata(path: str) -> dict[str, dict]:
+    """Enrichment only: same formats as ``load_input``, metadata half only."""
+    return load_input(path)[1]

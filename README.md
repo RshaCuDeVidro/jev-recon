@@ -30,7 +30,7 @@ jev-recon/
 ├── scripts/
 │   ├── gen_sample.py             gera uma lista sintética grande para demo/carga
 │   └── mock_typesafe_server.py   API falsa compatível, para demo e testes sem key
-├── tests/                40 testes (unittest, sem dependências extras)
+├── tests/                52 testes (unittest, sem dependências extras)
 ├── examples/             entrada, saída e logs de execuções reais
 ├── requirements.txt      httpx
 ├── pyproject.toml
@@ -58,7 +58,89 @@ TYPESAFE_DEFAULT_MODEL=jev-latest
 
 Chave em https://console.typesafe.ai/settings/keys
 
-## Uso
+## Com subfinder, httpx e nuclei
+
+O caso de uso principal. `jev-recon` lê stdin quando você passa `-` (que já é o
+default), então entra direto no meio do pipeline.
+
+```bash
+# 1. enumera
+subfinder -d alvo.com -silent | sort -u > hosts.txt
+
+# 2. enriquece (opcional, mas melhora muito o sinal)
+httpx -silent -json -l hosts.txt -o probe.json \
+      -status-code -title -tech-detect -web-server -ports 443,80,8080,8443
+
+# 3. prioriza
+jev-recon hosts.txt --meta probe.json --cache jev-cache.json \
+    --threshold 0.70 --output interesting.json --all-output all.json
+```
+
+Sem arquivo intermediário, tudo por pipe:
+
+```bash
+subfinder -d alvo.com -silent | sort -u | jev-recon - --meta probe.json \
+    --cache jev-cache.json --threshold 0.70 --output interesting.json
+```
+
+E o que sai daqui vai para a etapa caríssima:
+
+```bash
+# só os high-interest, para o nuclei
+jq -r '.[].hostname' interesting.json | nuclei -l - -severity critical,high
+
+# ou para o httpx de novo, agora para tirar screenshot dos que importam
+jq -r '.[].hostname' interesting.json | httpx -silent -screenshot
+
+# ou os top 20 para olhar na mão
+jq -r '.[:20][] | "\(.priority)  \(.hostname)"' interesting.json
+```
+
+Exemplo de execução real (dominio proprio, `examples/subfinder-pipeline.txt`):
+
+```
+5 subdomains → 5 candidates → 1 request · 33.0s → 5 assets
+
+0.29  reesxss.pwnd.blog       prod 0.43  sens 0.19  admin 0.08  inter 0.54
+0.27  zimute.pwnd.blog        prod 0.62  sens 0.13  admin 0.06  inter 0.30
+0.23  www.pwnd.blog           prod 0.58  sens 0.14  admin 0.05  inter 0.16
+
+tokens in 7,262   est. cost $0.0003   (jev-1.13.0)
+```
+
+### O que do `httpx -json` chega no Jev
+
+O `httpx -json` escreve um objeto por linha com cerca de 25 campos, e boa parte é
+ruído para a decisão (`timestamp`, `resolvers`, `knowledgebase`, `method`,
+`path`, `words`). O Jev é explícito na doc: state com material não relacionado à
+pergunta derruba a acurácia. Então o default mantém só o que decide, tanto no
+state quanto no arquivo de saída:
+
+```
+resolved_ips  http_status  title  server  ports  technologies  scheme
+final_url  redirect_to  cdn  cname  content_length  response_time  probe_failed
+```
+
+Os nomes que as ferramentas usam são traduzidos automaticamente:
+`status_code → http_status`, `tech → technologies`, `webserver → server`,
+`host_ip`/`a`/`ip → resolved_ips`, `location → redirect_to`, `port → ports`.
+Campo desconhecido passa direto, nada é descartado em silêncio.
+
+Controle: `--meta-fields title,server,http_status` para escolher na mão, ou
+`--meta-all` para mandar tudo (inclusive o ruído) no state e no output.
+
+Uma linha por porta também é tratada: o `httpx` emite uma linha para o 80 e outra
+para o 443 do mesmo host, e as duas são fundidas sem que um campo vazio apague um
+preenchido (a linha do redirect não tem `title`).
+
+### A chave é achada de qualquer diretório
+
+`--env-file .env` procura, nesta ordem: `.env` do diretório atual, `.env` da raiz
+do projeto, `~/.config/jev-recon/.env`. Então você pode chamar o `jev-recon` de
+dentro de qualquer pasta de engajamento que a chave é encontrada. Se você nomear
+um arquivo explícito (`--env-file x.env`), só esse é usado, sem fallback.
+
+## Uso genérico
 
 ```bash
 .venv/bin/python -m jev_recon subdomains.txt \
@@ -72,6 +154,38 @@ Ou, depois de `pip install -e .`, o console script:
 
 ```bash
 jev-recon subdomains.txt --concurrency 20 --explain 10
+```
+
+### Flags
+
+```
+entrada/saída
+  -                      stdin (default), para pipes
+  --output F             high-interest, ordenado (default interesting.json)
+  --all-output F         tudo, com priority null nos que falharam
+  --report F             contagens, batching, pesos, uso, custo, erros
+  --threshold F          corte de high-interest (default 0.70)
+  --top N / --explain N  linhas no TOP ASSETS / tabela de sinais
+
+decisão
+  --signals a,b,c        subconjunto dos 7 sinais (custo cai na proporção)
+  --weights ...          pesos, JSON ou k=v, aceita peso negativo
+  --meta F               enriquecimento por host (httpx -json direto)
+  --meta-fields a,b      quais campos de metadata ficam
+  --meta-all             mantém tudo, inclusive ruído
+  --max-per-parent N     limita assets por domínio registrado
+  --drop-throwaway       descarta dev/test/qa (default: mantém e anota)
+  --limit N              analisa só os N melhores do pre_rank
+
+execução
+  --cache F              cache de respostas; re-rankear sai de graça
+  --batch-size N         candidatos por request (latência)
+  --concurrency N        requests em paralelo (default 8)
+  --max-retries N        tentativas por request (default 4)
+  --timeout F            por request, segundos
+  --strict               aborta na primeira falha (default: segue e marca)
+  --dry-run              plano e custo estimado, sem chamar a API
+  --quiet                sem progresso nem log de eventos
 ```
 
 Exemplo de execução real (50.000 subdomínios, 24.707 candidatos, concurrency 16,
@@ -117,10 +231,11 @@ RUN
 
 * `.txt`: um hostname por linha. Aceita lixo: `https://`, `:porta`, `user@`,
   `*.` (wildcard), `#` comentários, `host 1.2.3.4`, maiúsculas, IPs, URLs com path.
-* `.json`: lista de strings ou de objetos com `hostname`.
-* `.jsonl`: um objeto por linha.
-* `--meta metadata.json`: enriquecimento opcional por hostname
-  (`resolved_ips`, `http_status`, `title`, `server`, `ports`, `technologies`).
+* `-` (default): stdin, para `subfinder -silent | jev-recon -`.
+* `.json`: lista de strings ou de objetos com `hostname`/`host`/`input`/`url`.
+* `.jsonl`: um objeto por linha, no formato do `httpx -json`.
+* `--meta probe.json`: enriquecimento por hostname (`resolved_ips`, `http_status`,
+  `title`, `server`, `ports`, `technologies`), nas chaves do `httpx` ou as canônicas.
   Veja `examples/metadata.sample.json`. Se o input já for JSON com esses campos,
   eles entram automaticamente.
 

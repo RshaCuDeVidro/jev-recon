@@ -17,7 +17,13 @@ from pathlib import Path
 from . import __version__, config
 from .cache import ResponseCache
 from .jev import JevAuthError, JevClient, JevError
-from .preprocess import ParserOptions, load_metadata, prepare
+from .preprocess import (
+    STATE_META_FIELDS,
+    ParserOptions,
+    load_input,
+    load_metadata,
+    prepare,
+)
 from .rank import (
     build_assets,
     parse_weights,
@@ -91,39 +97,16 @@ class Reporter:
 # ---------------------------------------------------------------------------
 
 
-def load_input(path: str) -> tuple[list[str], dict[str, dict]]:
-    """Read a txt / jsonl / json file. Rich records also become metadata."""
-    text = Path(path).read_text(encoding="utf-8")
-    stripped = text.lstrip()
-    if path.endswith(".json") or stripped.startswith("["):
-        data = json.loads(text)
-        if isinstance(data, dict):
-            data = list(data.values())
-        lines, meta = [], {}
-        for row in data:
-            if isinstance(row, str):
-                lines.append(row)
-            elif isinstance(row, dict) and row.get("hostname"):
-                lines.append(str(row["hostname"]))
-                meta[str(row["hostname"]).lower()] = {
-                    k: v for k, v in row.items() if k != "hostname"
-                }
-        return lines, meta
-    if path.endswith(".jsonl"):
-        lines, meta = [], {}
-        for row in stripped.splitlines():
-            if not row.strip():
-                continue
-            obj = json.loads(row)
-            if isinstance(obj, str):
-                lines.append(obj)
-            elif isinstance(obj, dict) and obj.get("hostname"):
-                lines.append(str(obj["hostname"]))
-                meta[str(obj["hostname"]).lower()] = {
-                    k: v for k, v in obj.items() if k != "hostname"
-                }
-        return lines, meta
-    return [line for line in text.splitlines() if line.strip()], {}
+def resolve_meta_fields(spec: str | None, send_all: bool) -> frozenset[str]:
+    """Which metadata keys reach the state. Jev is explicit: filter first."""
+    if send_all:
+        return frozenset(STATE_META_FIELDS | {"*"})
+    if not spec:
+        return STATE_META_FIELDS
+    chosen = {token.strip() for token in spec.replace(" ", "").split(",") if token.strip()}
+    if not chosen:
+        raise ValueError("--meta-fields was empty")
+    return frozenset(chosen)
 
 
 def resolve_signals(spec: str | None) -> tuple[str, ...]:
@@ -253,6 +236,13 @@ def print_dry_run(plan: dict, payload: dict | None) -> None:
 
 async def run(args: argparse.Namespace) -> int:
     started = time.monotonic()
+    if args.input in {"-", "/dev/stdin"} and sys.stdin.isatty():
+        print(
+            "no input: pass a file, or pipe one in "
+            "(e.g. subfinder -d alvo -silent | jev-recon)",
+            file=sys.stderr,
+        )
+        return 2
     lines, meta = load_input(args.input)
     if args.meta:
         meta = {**meta, **load_metadata(args.meta)}
@@ -262,6 +252,7 @@ async def run(args: argparse.Namespace) -> int:
         allow_underscore=args.allow_underscore,
         drop_throwaway=args.drop_throwaway,
         max_per_parent=args.max_per_parent,
+        state_meta_fields=resolve_meta_fields(args.meta_fields, args.meta_all),
     )
     report = prepare(lines, opts, metadata=meta, limit=args.limit)
     candidates = report.candidates
@@ -316,8 +307,9 @@ async def run(args: argparse.Namespace) -> int:
 
     if not args.api_key and not os.environ.get(config.API_KEY_ENV):
         print(
-            f"No API key. Put {config.API_KEY_ENV}=... in {args.env_file} "
-            "or export it. Get one at https://console.typesafe.ai/settings/keys",
+            f"No API key. Put {config.API_KEY_ENV}=... in one of:\n  "
+            + "\n  ".join(args.env_tried)
+            + "\nor export it. Get one at https://console.typesafe.ai/settings/keys",
             file=sys.stderr,
         )
         return 2
@@ -437,7 +429,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("input", help="subdomains.txt, assets.json or assets.jsonl")
+    parser.add_argument("input", nargs="?", default="-",
+                        help="hosts.txt, assets.json, assets.jsonl, or - to read stdin "
+                             "(default, so you can pipe from subfinder)")
     parser.add_argument("--output", default="interesting.json",
                         help="high-interest assets, ranked")
     parser.add_argument("--all-output", default=None,
@@ -476,6 +470,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-underscore", action="store_true",
                         help="keep labels with underscores")
     parser.add_argument("--meta", default=None, help="JSON/JSONL metadata keyed by hostname")
+    parser.add_argument("--meta-fields", default=None,
+                        help="comma list of metadata keys to put in the state "
+                             "(default: the decision-relevant ones)")
+    parser.add_argument("--meta-all", action="store_true",
+                        help="send every metadata field to Jev, noise included")
     parser.add_argument("--cache", default=None,
                         help="JSON file with responses, keyed by request body. "
                              "Re-ranking with new weights then costs nothing")
@@ -490,7 +489,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    config.load_env(args.env_file)
+    _, args.env_tried = config.load_env(args.env_file)
     args.api_key, args.base_url, args.model = config.resolve(
         args.api_key, args.base_url, args.model
     )
